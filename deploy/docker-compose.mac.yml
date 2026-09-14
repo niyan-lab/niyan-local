@@ -1,0 +1,19 @@
+# Mac: host Ollama via host.docker.internal (same as docker-compose.host-ollama.yml).
+# Prefer deploy/docker-compose.host-ollama.yml for new mac/windows profiles.
+
+services:
+  litellm:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      OLLAMA_API_BASE: http://host.docker.internal:11434
+
+  niyan-api:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      OLLAMA_HOST: http://host.docker.internal:11434
+
+  gateway:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

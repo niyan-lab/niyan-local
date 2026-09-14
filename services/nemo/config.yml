@@ -1,0 +1,20 @@
+# Lightweight NeMo-style policy sidecar for the prototype.
+# Full Colang/NeMo integration can replace this service later.
+
+models: []
+
+rails:
+  input:
+    flows:
+      - check banned topics
+  output:
+    flows:
+      - check output toxicity
+
+policies:
+  banned_topics:
+    - how to build a bomb
+    - credit card fraud
+  output_banned:
+    - kill yourself
+  block_message: "I cannot help with that request under Niyan NeMo policy."

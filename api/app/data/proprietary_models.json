@@ -1,0 +1,163 @@
+[
+  {
+    "id": "gpt-4o-mini",
+    "name": "GPT-4o mini",
+    "provider": "openai",
+    "family": "gpt",
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "modality": "chat",
+    "summary": "OpenAI's small, inexpensive multimodal model. The usual default for high-volume routing, classification, and extraction where GPT-4o quality is not required.",
+    "strengths": [
+      "Very low cost per token at high volume",
+      "Fast responses suited to interactive use",
+      "Reliable structured output and function calling"
+    ],
+    "limitations": [
+      "Weaker on complex multi-step reasoning than GPT-4o",
+      "Requests leave your network — review before sending regulated data",
+      "Subject to provider rate limits and deprecation schedules"
+    ],
+    "input_per_1m": 0.15,
+    "output_per_1m": 0.6,
+    "source_url": "https://platform.openai.com/docs/models"
+  },
+  {
+    "id": "gpt-4o",
+    "name": "GPT-4o",
+    "provider": "openai",
+    "family": "gpt",
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "modality": "vision",
+    "summary": "OpenAI's flagship general multimodal model, accepting text and images. The fallback for work the local models cannot handle well.",
+    "strengths": [
+      "Strong general reasoning, analysis, and writing",
+      "Native image understanding",
+      "Mature function calling and JSON mode"
+    ],
+    "limitations": [
+      "Roughly 17x the input cost of GPT-4o mini",
+      "Requests leave your network",
+      "Latency higher than the mini tier"
+    ],
+    "input_per_1m": 2.5,
+    "output_per_1m": 10.0,
+    "source_url": "https://platform.openai.com/docs/models"
+  },
+  {
+    "id": "gemini-2.5-flash",
+    "name": "Gemini 2.5 Flash",
+    "provider": "gemini",
+    "family": "gemini",
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "modality": "vision",
+    "summary": "Google's fast, low-cost model with a very large context window. Well suited to bulk document processing where the whole corpus fits in one prompt.",
+    "strengths": [
+      "Very large context window for whole-document prompts",
+      "Low cost relative to the context it accepts",
+      "Native multimodal input"
+    ],
+    "limitations": [
+      "Quality trails the Pro tier on hard reasoning",
+      "Requests leave your network",
+      "Large prompts still cost real money — watch token spend"
+    ],
+    "input_per_1m": 0.3,
+    "output_per_1m": 2.5,
+    "source_url": "https://ai.google.dev/gemini-api/docs/models"
+  },
+  {
+    "id": "gemini-3.5-flash",
+    "name": "Gemini 3.5 Flash",
+    "provider": "gemini",
+    "family": "gemini",
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "modality": "vision",
+    "summary": "The newer Gemini Flash generation — higher quality than 2.5 Flash at a higher price, keeping the very large context window.",
+    "strengths": [
+      "Better reasoning than 2.5 Flash at similar latency",
+      "Very large context window retained",
+      "Strong multimodal and multilingual coverage"
+    ],
+    "limitations": [
+      "Roughly 5x the input cost of 2.5 Flash",
+      "Requests leave your network",
+      "Newer model — behaviour may shift between revisions"
+    ],
+    "input_per_1m": 1.5,
+    "output_per_1m": 9.0,
+    "source_url": "https://ai.google.dev/gemini-api/docs/models"
+  },
+  {
+    "id": "claude-haiku-4-5",
+    "name": "Claude Haiku 4.5",
+    "provider": "anthropic",
+    "family": "claude",
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "modality": "chat",
+    "summary": "Anthropic's fast tier. Aimed at high-volume work where latency matters, while keeping the Claude family's instruction-following behaviour.",
+    "strengths": [
+      "Low latency for interactive and batch workloads",
+      "Careful instruction following and refusal behaviour",
+      "200K context for long documents"
+    ],
+    "limitations": [
+      "Costlier than GPT-4o mini or Gemini Flash at the same tier",
+      "Behind Sonnet and Opus on hard analysis",
+      "Requests leave your network"
+    ],
+    "input_per_1m": 1.0,
+    "output_per_1m": 5.0,
+    "source_url": "https://docs.anthropic.com/en/docs/about-claude/models"
+  },
+  {
+    "id": "claude-sonnet-5",
+    "name": "Claude Sonnet 5",
+    "provider": "anthropic",
+    "family": "claude",
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "modality": "chat",
+    "summary": "Anthropic's balanced tier — the usual default for Claude deployments. Strong at long-document analysis, code review, and structured writing.",
+    "strengths": [
+      "Excellent long-document comprehension and code reasoning",
+      "Balanced cost against the Opus tier",
+      "Consistent, well-structured long-form output"
+    ],
+    "limitations": [
+      "3x the input cost of Haiku",
+      "Requests leave your network",
+      "Verbose by default — prompt for brevity"
+    ],
+    "input_per_1m": 3.0,
+    "output_per_1m": 15.0,
+    "source_url": "https://docs.anthropic.com/en/docs/about-claude/models"
+  },
+  {
+    "id": "claude-opus-5",
+    "name": "Claude Opus 5",
+    "provider": "anthropic",
+    "family": "claude",
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "modality": "chat",
+    "summary": "Anthropic's most capable tier. Reserve it for genuinely hard analysis — at 15 USD per million input tokens it is the most expensive option configured here.",
+    "strengths": [
+      "Top-tier reasoning, research, and complex code work",
+      "Best quality available through this gateway",
+      "Handles ambiguous, open-ended tasks well"
+    ],
+    "limitations": [
+      "5x Sonnet and 100x GPT-4o mini on input cost",
+      "Highest latency of the configured models",
+      "Requests leave your network"
+    ],
+    "input_per_1m": 15.0,
+    "output_per_1m": 75.0,
+    "source_url": "https://docs.anthropic.com/en/docs/about-claude/models"
+  }
+]

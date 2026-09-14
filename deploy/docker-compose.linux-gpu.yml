@@ -1,0 +1,11 @@
+# Linux GPU profile: give Ollama access to NVIDIA GPUs when available.
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

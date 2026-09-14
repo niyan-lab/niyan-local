@@ -1,0 +1,19 @@
+# Host Ollama (Docker Desktop on macOS / Windows): reach host via host.docker.internal.
+# Do not enable the Compose `ollama` profile with this overlay.
+
+services:
+  litellm:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      OLLAMA_API_BASE: http://host.docker.internal:11434
+
+  niyan-api:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      OLLAMA_HOST: http://host.docker.internal:11434
+
+  gateway:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

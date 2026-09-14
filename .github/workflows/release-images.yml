@@ -1,0 +1,74 @@
+name: Release Niyan images
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag (e.g. 0.1.0)
+        required: true
+        default: "0.1.0"
+  push:
+    tags:
+      - "v*"
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - context: services/gateway
+            image: niyan-gateway
+          - context: api
+            image: niyan-api
+          - context: admin-ui
+            image: niyan-admin-ui
+          - context: services/llm-guard
+            image: niyan-guardrails
+          - context: services/nemo
+            image: niyan-nemo
+          - context: services/loadtest
+            image: niyan-loadtest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag and owner
+        id: meta
+        run: |
+          # GHCR / Docker require lowercase repository paths
+          echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.image }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          # Apple Silicon Macs need arm64; Linux servers need amd64
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/${{ matrix.image }}:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/${{ matrix.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

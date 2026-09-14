@@ -1,0 +1,178 @@
+version: 1
+profile: auto   # auto | mac | windows | linux-cpu | linux-gpu
+
+providers:
+  openai:
+    enabled: false
+    api_key: ""          # set via Admin → Providers or: niyan provider set openai --api-key ...
+  gemini:
+    enabled: false
+    api_key: ""
+  anthropic:
+    enabled: false
+    api_key: ""          # set via Admin → Providers or: niyan provider set anthropic --api-key ...
+
+models:
+  - id: llama3.2:3b
+    provider: ollama
+    family: llama
+    enabled: true
+    default: true
+  - id: gemma2:2b
+    provider: ollama
+    family: gemma
+    enabled: true
+  - id: gpt-4o-mini
+    provider: openai
+    family: gpt
+    enabled: false
+  - id: gpt-4o
+    provider: openai
+    family: gpt
+    enabled: false
+  - id: gemini-2.5-flash
+    provider: gemini
+    family: gemini
+    enabled: false
+  - id: gemini-3.5-flash
+    provider: gemini
+    family: gemini
+    enabled: false
+  - id: claude-haiku-4-5
+    provider: anthropic
+    family: claude
+    enabled: false
+  - id: claude-sonnet-5
+    provider: anthropic
+    family: claude
+    enabled: false
+  - id: claude-opus-5
+    provider: anthropic
+    family: claude
+    enabled: false
+
+pricing:
+  openai:
+    gpt-4o-mini:
+      input_per_1m: 0.15
+      output_per_1m: 0.60
+    gpt-4o:
+      input_per_1m: 2.50
+      output_per_1m: 10.00
+  gemini:
+    gemini-2.5-flash:
+      input_per_1m: 0.30
+      output_per_1m: 2.50
+    gemini-3.5-flash:
+      input_per_1m: 1.50
+      output_per_1m: 9.00
+  anthropic:
+    claude-haiku-4-5:
+      input_per_1m: 1.00
+      output_per_1m: 5.00
+    claude-sonnet-5:
+      input_per_1m: 3.00
+      output_per_1m: 15.00
+    claude-opus-5:
+      input_per_1m: 15.00
+      output_per_1m: 75.00
+  local_estimate_per_1m_tokens: null   # future TCO hook; unused in v1 API-cost totals
+
+proxy:
+  port: 4000
+  api_keys:
+    - sk-niyan-local
+
+observability:
+  enabled: true
+  provider: langfuse
+  public_key: ""
+  secret_key: ""
+  # Inside Docker use langfuse-web:3000. From browser open http://127.0.0.1:3100
+  host: http://langfuse-web:3000
+
+guardrails:
+  enabled: true
+  provider: llm_guard    # llm_guard | nemo
+  on_failure: allow      # allow | block
+  llm_guard:
+    scanners:                 # input stage
+      - prompt_injection
+      - pii
+    output_scanners:          # output stage (after the model replies)
+      - pii
+      - toxicity
+      - secrets
+  nemo:
+    config_path: ./services/nemo/config.yml
+
+embeddings:
+  enabled: true
+  model: nomic-embed-text   # Ollama embedding model
+
+vector:
+  enabled: false            # set true + niyan up to start Qdrant or pgvector
+  provider: qdrant          # qdrant | pgvector
+  qdrant:
+    port: 6333
+  pgvector:
+    database: niyan_vectors
+
+# Clients send model: "<domain>" (e.g. finance). The deployment bar picks
+# local_model vs proprietary_model (default proprietary = Gemini).
+enterprise_policy:
+  enabled: true
+  mode: manual              # manual | auto (auto coming later)
+  domains:
+    - id: finance
+      enabled: true
+      deployment: local     # local | proprietary
+      local_model: llama3.2:3b
+      proprietary_model: gemini-2.5-flash
+    - id: marketing
+      enabled: true
+      deployment: local
+      local_model: llama3.2:3b
+      proprietary_model: gemini-2.5-flash
+    - id: sales
+      enabled: true
+      deployment: local
+      local_model: llama3.2:3b
+      proprietary_model: gemini-2.5-flash
+    - id: research
+      enabled: true
+      deployment: local
+      local_model: llama3.2:3b
+      proprietary_model: gemini-2.5-flash
+    - id: summary
+      enabled: true
+      deployment: local
+      local_model: llama3.2:3b
+      proprietary_model: gemini-2.5-flash
+    - id: support
+      enabled: true
+      deployment: local
+      local_model: llama3.2:3b
+      proprietary_model: gemini-2.5-flash
+    - id: legal
+      enabled: true
+      deployment: local
+      local_model: llama3.2:3b
+      proprietary_model: gemini-2.5-flash
+
+admin:
+  enabled: true
+  port: 3080
+
+api:
+  port: 8100
+
+ollama:
+  # mac/windows (Docker Desktop): http://host.docker.internal:11434
+  # linux compose: http://ollama:11434
+  host: http://ollama:11434
+
+admin_auth:
+  username: admin
+  password: niyan
+  jwt_secret: change-me-niyan-dev-secret

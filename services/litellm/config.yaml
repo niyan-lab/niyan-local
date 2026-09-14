@@ -1,0 +1,25 @@
+# Fallback LiteLLM config (used only if config.generated.yaml is missing).
+# Prefer: niyan up  (writes config.generated.yaml from niyan.yaml)
+
+model_list:
+  - model_name: llama3.2:3b
+    litellm_params:
+      model: ollama/llama3.2:3b
+      api_base: os.environ/OLLAMA_API_BASE
+  - model_name: gemma2:2b
+    litellm_params:
+      model: ollama/gemma2:2b
+      api_base: os.environ/OLLAMA_API_BASE
+  - model_name: nomic-embed-text
+    litellm_params:
+      model: ollama/nomic-embed-text
+      api_base: os.environ/OLLAMA_API_BASE
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  success_callback: ["langfuse"]
+  failure_callback: ["langfuse"]
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

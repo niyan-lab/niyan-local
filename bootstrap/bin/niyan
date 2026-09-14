@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+# Thin Niyan CLI for pull-only (remote) installs — no Python / monorepo required.
+# Compatible with macOS Bash 3.2+.
+set -euo pipefail
+
+NIYAN_HOME="${NIYAN_HOME:-$HOME/.niyan}"
+STACK="${NIYAN_STACK:-$NIYAN_HOME/stack}"
+export NIYAN_ROOT="${NIYAN_ROOT:-$STACK}"
+
+usage() {
+  cat <<'EOF'
+Niyan (remote / pull-only CLI)
+
+Usage:
+  niyan doctor
+  niyan up [--pull]
+  niyan down
+  niyan status
+  niyan logs [-f] [service]
+  niyan pull
+  niyan version
+  niyan help
+
+Environment:
+  NIYAN_HOME                Product dir (default: ~/.niyan)
+  NIYAN_STACK / NIYAN_ROOT  Compose stack root (default: ~/.niyan/stack)
+  NIYAN_IMAGE_REGISTRY      Override image registry
+  NIYAN_IMAGE_TAG           Override image tag
+EOF
+}
+
+die() {
+  echo "niyan: $*" >&2
+  exit 1
+}
+
+need_stack() {
+  [ -f "$STACK/docker-compose.yml" ] || die "stack not found at $STACK (run the Niyan installer first)"
+}
+
+os_name() {
+  uname -s | tr '[:upper:]' '[:lower:]'
+}
+
+# Prints compose file/profile args as separate lines (safe for Bash 3.2).
+compose_line_args() {
+  echo "--project-name"
+  echo "niyan"
+  echo "-f"
+  echo "$STACK/docker-compose.yml"
+  case "$(os_name)" in
+    darwin|mingw*|msys*|cygwin*)
+      if [ -f "$STACK/docker-compose.host-ollama.yml" ]; then
+        echo "-f"
+        echo "$STACK/docker-compose.host-ollama.yml"
+      fi
+      ;;
+    *)
+      echo "--profile"
+      echo "ollama"
+      ;;
+  esac
+  echo "--profile"
+  echo "admin"
+  echo "--profile"
+  echo "obs"
+  echo "--profile"
+  echo "guard-llm"
+}
+
+run_compose() {
+  need_stack
+  # shellcheck disable=SC1091
+  set -a
+  [ -f "$STACK/.env" ] && . "$STACK/.env"
+  set +a
+  export NIYAN_ROOT="$STACK"
+  export COMPOSE_PROJECT_NAME=niyan
+  # Older GHCR tags may be amd64-only; allow pull/run on Apple Silicon via emulation
+  # until multi-arch images are published. Override with DOCKER_DEFAULT_PLATFORM=.
+  if [ -z "${DOCKER_DEFAULT_PLATFORM:-}" ]; then
+    case "$(uname -m)" in
+      arm64|aarch64) export DOCKER_DEFAULT_PLATFORM=linux/amd64 ;;
+    esac
+  fi
+
+  _base=()
+  while IFS= read -r line; do
+    _base+=("$line")
+  done <<EOF
+$(compose_line_args)
+EOF
+
+  (cd "$STACK" && docker compose "${_base[@]}" "$@")
+}
+
+cmd_doctor() {
+  ok=1
+  echo "Niyan doctor (remote)"
+  echo "  NIYAN_HOME=$NIYAN_HOME"
+  echo "  STACK=$STACK"
+  if command -v docker >/dev/null 2>&1; then
+    if docker info >/dev/null 2>&1; then
+      echo "  [ok] Docker is running"
+    else
+      echo "  [fail] Docker installed but daemon not reachable"
+      ok=0
+    fi
+  else
+    echo "  [fail] docker not found"
+    ok=0
+  fi
+  if docker compose version >/dev/null 2>&1; then
+    echo "  [ok] Docker Compose v2"
+  else
+    echo "  [fail] docker compose (v2) required"
+    ok=0
+  fi
+  need_stack
+  echo "  [ok] Stack files present"
+
+  case "$(os_name)" in
+    darwin|mingw*|msys*|cygwin*)
+      if curl -fsS --max-time 2 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+        echo "  [ok] Host Ollama reachable on :11434"
+      else
+        echo "  [warn] Host Ollama not reachable — install/start https://ollama.com (Mac/Windows)"
+      fi
+      ;;
+    *)
+      echo "  [info] Linux: Ollama runs in Compose (profile ollama)"
+      ;;
+  esac
+  [ "$ok" -eq 1 ] || exit 1
+}
+
+cmd_up() {
+  pull=0
+  for arg in "$@"; do
+    case "$arg" in
+      --pull) pull=1 ;;
+      -h|--help)
+        echo "Usage: niyan up [--pull]"
+        return 0
+        ;;
+    esac
+  done
+  if [ "$pull" -eq 1 ]; then
+    run_compose pull
+  fi
+  run_compose up -d --remove-orphans
+  echo
+  echo "Stack starting."
+  echo "  Admin UI:  http://127.0.0.1:3080  (default admin / niyan)"
+  echo "  Gateway:   http://127.0.0.1:4000"
+  echo "  API docs:  http://127.0.0.1:8100/docs"
+  echo "  Langfuse:  http://127.0.0.1:3100"
+  echo
+  echo "Pull models via Admin → Models, or: ollama pull llama3.2:3b"
+}
+
+cmd_down() {
+  run_compose down --remove-orphans
+  echo "Stack stopped."
+}
+
+cmd_status() {
+  run_compose ps
+}
+
+cmd_logs() {
+  follow=""
+  svc=""
+  for arg in "$@"; do
+    case "$arg" in
+      -f|--follow) follow="-f" ;;
+      -*) die "unknown logs flag: $arg" ;;
+      *) svc="$arg" ;;
+    esac
+  done
+  if [ -n "$follow" ] && [ -n "$svc" ]; then
+    run_compose logs --tail 200 -f "$svc"
+  elif [ -n "$follow" ]; then
+    run_compose logs --tail 200 -f
+  elif [ -n "$svc" ]; then
+    run_compose logs --tail 200 "$svc"
+  else
+    run_compose logs --tail 200
+  fi
+}
+
+cmd_pull() {
+  run_compose pull
+}
+
+cmd_version() {
+  tag="0.1.0"
+  if [ -f "$STACK/.env" ]; then
+    line="$(grep -E '^NIYAN_IMAGE_TAG=' "$STACK/.env" 2>/dev/null | head -1 || true)"
+    if [ -n "$line" ]; then
+      tag="${line#NIYAN_IMAGE_TAG=}"
+    fi
+  fi
+  echo "niyan-remote ${tag}"
+}
+
+main() {
+  cmd="${1:-help}"
+  shift || true
+  case "$cmd" in
+    doctor) cmd_doctor "$@" ;;
+    up) cmd_up "$@" ;;
+    down|stop) cmd_down "$@" ;;
+    status|ps) cmd_status "$@" ;;
+    logs) cmd_logs "$@" ;;
+    pull) cmd_pull "$@" ;;
+    version|--version|-V) cmd_version "$@" ;;
+    help|-h|--help) usage ;;
+    *)
+      usage >&2
+      die "unknown command: $cmd"
+      ;;
+  esac
+}
+
+main "$@"
