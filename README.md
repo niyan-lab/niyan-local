@@ -4,6 +4,8 @@
 
 > Niyan is **not** a better Ollama chat UI. Ollama runs models; Niyan runs the **application environment** around them.
 
+**This repository** (`niyan-local`) is the **local / Compose / installer** product. Kubernetes (Helm, Terraform, cluster lifecycle) lives in [`niyan-complete`](https://github.com/niyan-lab/niyan-complete). See [docs/CHARTER.md](docs/CHARTER.md).
+
 ## Architecture
 
 ```
