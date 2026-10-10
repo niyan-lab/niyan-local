@@ -17,7 +17,7 @@ def _status_payload(cfg) -> dict:
         "enabled": obs.enabled,
         "provider": obs.provider,
         "host": obs.host,
-        "ui_url": "http://localhost:3100",
+        "ui_url": settings.langfuse_ui_url,
         "keys_configured": bool(pub and (obs.secret_key or "").strip()),
         "public_key_last4": pub[-4:] if len(pub) >= 4 else ("" if not pub else pub),
         "secret_key_set": bool((obs.secret_key or "").strip()),
@@ -50,5 +50,5 @@ async def update_observability(
     return {
         **_status_payload(cfg),
         "reachable": reachable,
-        "note": "Keys saved to niyan.yaml; the gateway reads them live for new traces.",
+        "note": "Keys saved; the gateway reads them live for new traces.",
     }

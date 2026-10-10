@@ -12,9 +12,13 @@
     Client → Gateway :4000 → Guardrails (input) → LiteLLM → Guardrails (output)
                                → Ollama (local chat + nomic-embed-text)
                                → OpenAI / Gemini / Anthropic (proprietary, optional)
-                      → Langfuse (optional traces)
-CLI / Admin UI → niyan-api :8100 → Docker Compose + niyan.yaml
+                      → Redis (metrics + config cache) → Langfuse (optional traces)
+CLI / Admin UI → niyan-api :8100 → Postgres (runtime config)
+                                 → Docker Compose
                                  → Qdrant XOR pgvector (optional)
+
+Runtime config: Postgres is source of truth. Redis is a gateway cache.
+niyan.yaml is first-boot seed and fallback if Postgres is down.
 ```
 
 ### Profiles
@@ -140,6 +144,10 @@ Or skip shell wiring and use the repo-local CLI:
 ```
 
 Remove a broken block: `niyan shell init --reverse`, then `niyan shell init` again.
+
+### Upgrading from Novus
+
+Older installs may still have a `# >>> novus initialize >>>` block that sources `shell/novus.sh`. Re-run `./install.sh` or `niyan shell init` — the legacy block is removed automatically. `shell/novus.sh` remains as a compatibility shim that forwards to `niyan.sh`.
 
 ### `niyan up` fails with Docker `content digest … not found`
 
@@ -388,11 +396,11 @@ General stack smoke: `./scripts/smoke_test.sh`.
 
 ```
 cli/           # Python Typer CLI (`niyan`)
-api/           # FastAPI control plane
+api/           # FastAPI control plane (Postgres ConfigStore)
 admin-ui/      # React + Vite admin console
 services/      # gateway, litellm config, llm-guard, nemo
 deploy/        # docker compose + profiles
-configs/       # niyan.example.yaml
+configs/       # niyan.example.yaml (seed)
 ```
 
 ## CLI
@@ -424,7 +432,7 @@ Use **local Ollama models** for zero API cost, or **OpenAI / Gemini / Anthropic*
 | **gemini** | `gemini-2.5-flash`, `gemini-3.5-flash` | Requires Google AI / Gemini API key |
 | **anthropic** | `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5` | Requires Anthropic API key |
 
-Embeddings stay on **local Ollama** (`nomic-embed-text`) for now. Proprietary chat models are configured in `niyan.yaml` under `providers` and `models`; LiteLLM routes are generated into `services/litellm/config.generated.yaml` on `niyan up` or when you save from the Admin UI.
+Embeddings stay on **local Ollama** (`nomic-embed-text`) for now. Proprietary chat models are stored in the **Postgres runtime config** (`providers` and `models`); `niyan.yaml` only seeds an empty database. LiteLLM routes are generated into `services/litellm/config.generated.yaml` on `niyan up` or when you save from the Admin UI.
 
 ### Setup (Admin UI — recommended)
 
@@ -443,7 +451,7 @@ Saving Providers or enabling a model regenerates LiteLLM config and restarts the
 ### Setup (CLI)
 
 ```bash
-# 1) Store provider keys in niyan.yaml (never echoed back in full)
+# 1) Store provider keys (CLI writes niyan.yaml; Admin UI writes Postgres)
 niyan provider set openai --api-key "$OPENAI_API_KEY"
 niyan provider set gemini --api-key "$GEMINI_API_KEY"
 niyan provider set anthropic --api-key "$ANTHROPIC_API_KEY"
@@ -469,7 +477,7 @@ Disable a cloud model: `niyan model disable gpt-4o-mini`
 
 ### Usage (same gateway as local models)
 
-All requests use the **Niyan gateway API key** (`Authorization: Bearer sk-niyan-local` by default). Niyan forwards to LiteLLM, which calls OpenAI, Gemini, or Anthropic using **your** provider key stored in `niyan.yaml`.
+All requests use the **Niyan gateway API key** (`Authorization: Bearer sk-niyan-local` by default). Niyan forwards to LiteLLM, which calls OpenAI, Gemini, or Anthropic using **your** provider key from the runtime config (Postgres).
 
 **Gemini 2.5 Flash:**
 
@@ -540,9 +548,9 @@ Configure concurrent users (max 50), spawn rate, and duration (max 600s). Only *
 
 Requires the `loadtest` container (`niyan up --build`). Artifacts land under `data/loadtests/{run_id}/`.
 
-### Configuration (`niyan.yaml`)
+### Configuration (Postgres, with `niyan.yaml` as seed)
 
-Provider keys and model enablement live in `niyan.yaml` (created by `install.sh` / `niyan init`):
+Provider keys and model enablement live in Postgres (`niyan_runtime_config`). `install.sh` / `niyan init` still write `niyan.yaml`, which is imported **once** when the database row is empty and used again only if Postgres is unreachable:
 
 ```yaml
 providers:
@@ -579,7 +587,7 @@ pricing:                       # used for dashboard cost estimates (USD per 1M t
     claude-opus-5: { input_per_1m: 15.00, output_per_1m: 75.00 }
 ```
 
-After editing `niyan.yaml` by hand, run `niyan up` to regenerate LiteLLM config and reload env vars.
+Prefer **Admin UI** for live changes (writes Postgres, then publishes a Redis cache the gateway reads). Hand-editing `niyan.yaml` after the database is seeded does **not** override Postgres. To re-seed from the file, delete the `niyan_runtime_config` row and restart `niyan-api`, then run `niyan up` so LiteLLM picks up routes.
 
 ### Usage & cost dashboard
 
@@ -590,7 +598,7 @@ Open **Dashboard** in the Admin UI ([http://127.0.0.1:3080](http://127.0.0.1:308
 - **Tokens** and **proprietary API cost (USD)** pulled from **Langfuse Daily Metrics** (Langfuse prices OpenAI/Gemini/Anthropic from its model catalog)
 - **Local vs proprietary** comparison — self-hosted Ollama cost is **N/A for now** (open-source cost later); OpenAI/Gemini/Anthropic show Langfuse cost
 - Daily cost bars for the selected window
-- Requires `observability.public_key` / `secret_key` in `niyan.yaml` (Langfuse project keys)
+- Requires Langfuse project keys in runtime config (Admin → Observability; seeded from `niyan.yaml`)
 
 Attribute traffic per project by sending a header (demo apps already do this):
 
@@ -613,18 +621,21 @@ Langfuse UI ([http://127.0.0.1:3100](http://127.0.0.1:3100)) remains the place f
 | `Invalid model name … gemini-2.5-flash` | Model not enabled or LiteLLM not refreshed — `niyan model enable gemini-2.5-flash` then `niyan up` |
 | Pull on Gemini/OpenAI/Anthropic fails (Ollama 500) | Cloud models must be **enabled**, not pulled — use Models → Proprietary or `niyan model enable` |
 | `Provider … not configured` | Set key under **Providers** or `niyan provider set anthropic --api-key …` |
-| Model missing from `/v1/models` | Provider disabled, key empty, or model `enabled: false` in `niyan.yaml` |
-| Cost stays $0 for Gemini/OpenAI/Anthropic on Dashboard | Ensure Langfuse keys in `niyan.yaml`; open Dashboard range; confirm cost on the trace in Langfuse; model id must match Langfuse Models catalog |
+| Model missing from `/v1/models` | Provider disabled, key empty, or model `enabled: false` in runtime config |
+| Cost stays $0 for Gemini/OpenAI/Anthropic on Dashboard | Ensure Langfuse keys in Admin → Observability; open Dashboard range; confirm cost on the trace in Langfuse; model id must match Langfuse Models catalog |
 | Dashboard shows Langfuse unavailable | Set `observability.public_key` / `secret_key`; confirm Langfuse reachable at `:3100` |
 
 Intelligent routing between local and proprietary models (auto-pick cheapest/fastest) is planned for a later release.
 
 ## Configuration
 
-Edit `niyan.yaml` (created by `niyan init`). Single source of truth for models, proxy keys, observability, guardrails, embeddings, and vector provider. For **OpenAI / Gemini / Anthropic** keys, model enablement, and pricing defaults, see [Proprietary models (OpenAI / Gemini / Anthropic)](#proprietary-models-openai--gemini--anthropic) above.
+**Postgres** is the live store for models, proxy keys, observability, guardrails, embeddings, vector provider, and enterprise policy. **Redis** holds a cache copy so the gateway can hot-reload policy and Langfuse keys. **`niyan.yaml`** (created by `niyan init`) is the first-boot seed and the fallback if Postgres is down.
+
+
+For **OpenAI / Gemini / Anthropic** keys, model enablement, and pricing defaults, see [Proprietary models (OpenAI / Gemini / Anthropic)](#proprietary-models-openai--gemini--anthropic) above. Full routing: [docs/Arch.md](docs/Arch.md).
 
 ## Prototype scope
 
 **In:** Ollama, LiteLLM, gateway, Langfuse, LLM Guard + NeMo (input and output scanners), Qdrant + pgvector (selectable), `nomic-embed-text`, OpenAI + Gemini + Anthropic (keys via portal), token/cost dashboard with per-application filter, control plane, admin UI, CLI.
 
-**Later:** intelligent routing local↔cloud, vLLM, Triton/TensorRT-LLM, Keycloak, Prometheus/Grafana, Helm, Go CLI binary, encrypted key vault.
+**Later:** intelligent routing local↔cloud, vLLM, Triton/TensorRT-LLM, Keycloak, Prometheus/Grafana, Go CLI binary, encrypted key vault.

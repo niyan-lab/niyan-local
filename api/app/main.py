@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.container import build_container, set_container
+from app.services.config_store import ConfigReadOnlyError
+from app.settings import settings
 from app.routers import (
     auth,
     dashboard,
@@ -19,19 +25,36 @@ from app.routers import (
     vector,
 )
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    container = build_container()
+    set_container(container)
+    app.state.container = container
+    yield
+
+
 app = FastAPI(
     title="Niyan Control Plane",
     version="0.1.0",
     description="Orchestrates Niyan stack config, models, gateway, guardrails, vectors, and observability.",
+    lifespan=lifespan,
 )
 
+_origins = settings.cors_origins_list()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_origins,
+    allow_credentials=bool(_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(ConfigReadOnlyError)
+async def _config_readonly_handler(_: Request, exc: ConfigReadOnlyError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
 
 app.include_router(auth.router)
 app.include_router(services.router)

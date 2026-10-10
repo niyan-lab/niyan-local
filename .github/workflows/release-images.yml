@@ -28,6 +28,10 @@ jobs:
             image: niyan-gateway
           - context: api
             image: niyan-api
+          - context: api
+            image: niyan-api
+            tag-suffix: "-k8s"
+            build-args: NIYAN_PLATFORM=kubernetes
           - context: admin-ui
             image: niyan-admin-ui
           - context: services/llm-guard
@@ -68,7 +72,8 @@ jobs:
           # Apple Silicon Macs need arm64; Linux servers need amd64
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/${{ matrix.image }}:${{ steps.meta.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/${{ matrix.image }}:latest
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/${{ matrix.image }}:${{ steps.meta.outputs.tag }}${{ matrix.tag-suffix }}
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/${{ matrix.image }}:latest${{ matrix.tag-suffix }}
+          build-args: ${{ matrix.build-args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

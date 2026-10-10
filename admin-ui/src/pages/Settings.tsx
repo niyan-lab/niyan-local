@@ -19,7 +19,7 @@ export default function Settings() {
     try {
       const parsed = JSON.parse(raw);
       await api.putConfig(parsed);
-      setMsg("Configuration saved to niyan.yaml");
+      setMsg("Configuration saved");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -32,7 +32,7 @@ export default function Settings() {
           <p className="page-kicker">Configuration</p>
           <h1>Settings</h1>
           <p className="muted" style={{ margin: "0.4rem 0 0" }}>
-            Edit validated niyan.yaml via the control plane (JSON view).
+            Edit validated runtime config via the control plane (JSON view).
           </p>
         </div>
       </div>

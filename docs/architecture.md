@@ -40,4 +40,6 @@ Embeddings stay on Ollama (no separate embedding microservice). Default model: `
 
 ## Config
 
-`niyan.yaml` is the single source of truth. Compose profiles and env vars are derived by the CLI `local_compose.build_env` / `compose_cmd`.
+**Postgres** (`niyan_runtime_config`) is the live store. **Redis** (`niyan:config:*`) is a gateway cache for policy and Langfuse keys. **`niyan.yaml`** is first-boot seed and fallback if Postgres is down. Compose profiles and env vars are still derived by the CLI `local_compose.build_env` / `compose_cmd` from the seed file at `niyan up` time.
+
+See [Arch.md](Arch.md) for the full config and routing design.

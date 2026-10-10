@@ -1,4 +1,34 @@
-const API_URL = import.meta.env.VITE_API_URL || "";
+// Runtime config (window.__NIYAN_CONFIG__) may be injected via /config.js.
+// On Compose, public/config.js is empty and build-time VITE_* env wins.
+//
+// Resolution order per URL:
+//   1. runtime config      (optional /config.js)
+//   2. build-time Vite env (VM / docker-compose)
+//   3. "" — callers supply their own loopback default
+declare global {
+  interface Window {
+    __NIYAN_CONFIG__?: { apiBaseUrl?: string; gatewayBaseUrl?: string };
+  }
+}
+
+// apiBaseUrl may legitimately be "" (same-origin/relative), so the check is
+// `typeof === "string"`, not truthiness.
+const RUNTIME_API_URL = window.__NIYAN_CONFIG__?.apiBaseUrl;
+export const API_BASE_URL =
+  typeof RUNTIME_API_URL === "string"
+    ? RUNTIME_API_URL
+    : import.meta.env.VITE_API_URL || "";
+
+// gatewayBaseUrl is different: "" means "not configured" and falls through,
+// because a relative gateway URL would produce a curl snippet the user cannot
+// paste into a terminal.
+const RUNTIME_GATEWAY_URL = window.__NIYAN_CONFIG__?.gatewayBaseUrl;
+export const GATEWAY_BASE_URL =
+  typeof RUNTIME_GATEWAY_URL === "string" && RUNTIME_GATEWAY_URL !== ""
+    ? RUNTIME_GATEWAY_URL
+    : import.meta.env.VITE_GATEWAY_URL || "";
+
+const API_URL = API_BASE_URL;
 
 export type Token = string | null;
 
