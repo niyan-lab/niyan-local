@@ -104,5 +104,5 @@ async def put_enterprise_policy(
     return {
         **_payload(cfg),
         "ok": True,
-        "saved": "Keys saved to niyan.yaml; gateway remaps domains on the next request.",
+        "saved": "Policy saved; gateway remaps domains on the next request.",
     }

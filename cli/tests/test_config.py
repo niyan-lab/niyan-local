@@ -5,7 +5,7 @@ from unittest.mock import patch
 from niyan.config import Profile, load_config, uses_host_ollama
 from niyan.doctor import detect_profile
 from niyan.local_compose import compose_cmd, compose_files, find_repo_root, guardrails_url
-from niyan.shell_init import build_block, detect_shell
+from niyan.shell_init import build_block, detect_shell, remove_legacy_init
 
 
 def test_load_example_config():
@@ -76,3 +76,20 @@ def test_powershell_shell_block():
     assert "niyan.ps1" in block
     assert detect_shell("pwsh") == "powershell"
 
+
+def test_remove_legacy_novus_shell_block(tmp_path):
+    rc = tmp_path / ".zshrc"
+    rc.write_text(
+        "# before\n"
+        "# >>> novus initialize >>>\n"
+        'export NOVUS_ROOT="/repo"\n'
+        '. "/repo/shell/novus.sh"\n'
+        "# <<< novus initialize <<<\n"
+        "# after\n",
+        encoding="utf-8",
+    )
+    assert remove_legacy_init(rc) is True
+    text = rc.read_text(encoding="utf-8")
+    assert "novus" not in text
+    assert "# before" in text
+    assert "# after" in text

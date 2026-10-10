@@ -36,3 +36,12 @@ def test_collect_resources_cpu_memory_shape():
         assert snap["memory"]["percent"] is not None
     except ImportError:
         assert snap["cpu"]["available"] is False
+
+
+def test_gpu_unavailable_on_kubernetes(monkeypatch):
+    # Guard reads the resolved platform; patch the symbol host_metrics imported.
+    monkeypatch.setattr(host_metrics, "resolve_platform", lambda: "kubernetes")
+    gpu = host_metrics._gpu()
+    assert gpu["available"] is False
+    assert gpu["devices"] == []
+    assert "Kubernetes" in gpu["detail"]

@@ -1,6 +1,6 @@
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, Link } from "react-router-dom";
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { api, getToken, setToken } from "./api/client";
+import { api, API_BASE_URL, getToken, setToken } from "./api/client";
 import {
   THEME_STORAGE_KEY,
   applyTheme,
@@ -10,6 +10,16 @@ import {
   type ThemePreference,
 } from "./theme";
 import { Atmosphere } from "./components/Atmosphere";
+// Show the host the SPA actually calls. API_BASE_URL is "" for same-origin
+// deployments, where the browser's own host is the answer.
+const ENDPOINT_LABEL = (() => {
+  try {
+    return new URL(API_BASE_URL || window.location.origin).host;
+  } catch {
+    return window.location.host;
+  }
+})();
+
 import { BrandMark } from "./components/BrandMark";
 import { CommandPalette, type PaletteItem } from "./components/CommandPalette";
 import { PageTurn } from "./components/PageTurn";
@@ -417,7 +427,7 @@ function Shell({ theme, onToggleTheme }: { theme: ResolvedTheme; onToggleTheme: 
             <StackStatusChip health={health} />
             <span className="env-chip">
               <span className="env-key">endpoint</span>
-              <span className="env-value">127.0.0.1:8100</span>
+              <span className="env-value">{ENDPOINT_LABEL}</span>
             </span>
             <button type="button" className="topbar-search" onClick={() => setPaletteOpen(true)}>
               <IconSearch />

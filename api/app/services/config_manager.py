@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import yaml
-
+from app.container import get_container
+from app.services.config_store import FileConfigStore
 from app.schemas.models import (
     DomainPolicy,
     EnterprisePolicyConfig,
@@ -77,25 +77,18 @@ def ensure_curated_models(config: NiyanConfig) -> NiyanConfig:
                 changed = True
     if ensure_enterprise_policy(config):
         changed = True
-    if changed and settings.niyan_config_path.exists():
-        save_config(config)
+    if changed:
+        store = get_container().config_store
+        if store.writable and (
+            not isinstance(store, FileConfigStore) or settings.niyan_config_path.exists()
+        ):
+            save_config(config)
     return config
 
 
 def load_config() -> NiyanConfig:
-    path = settings.niyan_config_path
-    if not path.exists():
-        example = settings.niyan_root / "configs" / "niyan.example.yaml"
-        if example.exists():
-            data = yaml.safe_load(example.read_text()) or {}
-            return ensure_curated_models(NiyanConfig.model_validate(data))
-        return ensure_curated_models(NiyanConfig())
-    data = yaml.safe_load(path.read_text()) or {}
-    return ensure_curated_models(NiyanConfig.model_validate(data))
+    return ensure_curated_models(get_container().config_store.load())
 
 
 def save_config(config: NiyanConfig) -> NiyanConfig:
-    path = settings.niyan_config_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(config.model_dump(mode="json"), sort_keys=False))
-    return config
+    return get_container().config_store.save(config)

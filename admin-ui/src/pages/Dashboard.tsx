@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api } from "../api/client";
+import { api, GATEWAY_BASE_URL } from "../api/client";
 import { PageTurn } from "../components/PageTurn";
 import { AreaChart, RankedBars, Sparkline, type Point, type Tone } from "../components/charts";
 import {
@@ -13,6 +13,8 @@ import {
   type MetricBasis,
 } from "../components/ui";
 import { serviceLabel } from "../components/StackStatus";
+
+const GATEWAY_ORIGIN = GATEWAY_BASE_URL || "http://127.0.0.1:4000";
 
 type RangeKey = "24h" | "7d" | "30d" | "90d" | "custom";
 type DashTab = "overview" | "models" | "cost" | "applications" | "hardware";
@@ -1885,7 +1887,7 @@ export default function Dashboard() {
               </p>
               <pre className="code-block">
                 <code>
-{`curl http://127.0.0.1:4000/v1/chat/completions \\
+{`curl ${GATEWAY_ORIGIN}/v1/chat/completions \\
   -H "Authorization: Bearer sk-niyan-local" \\
   -H "X-Niyan-Application: Enterprise-Functions" \\
   -H "Content-Type: application/json" \\

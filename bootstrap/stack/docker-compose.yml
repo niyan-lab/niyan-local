@@ -20,6 +20,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-niyan}
       POSTGRES_DB: ${POSTGRES_DB:-langfuse}
       POSTGRES_VECTOR_DB: ${POSTGRES_VECTOR_DB:-niyan_vectors}
+      POSTGRES_CONFIG_DB: ${POSTGRES_CONFIG_DB:-niyan}
     volumes:
       - niyan_pg:/var/lib/postgresql/data
       - ./postgres/init-vector.sh:/docker-entrypoint-initdb.d/10-niyan-vector.sh:ro
@@ -28,7 +29,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    profiles: ["obs", "vector-pg"]
+    # Always on: runtime config lives in Postgres (niyan.yaml is seed/fallback)
 
   qdrant:
     <<: *niyan-common
@@ -207,6 +208,9 @@ services:
     environment:
       NIYAN_ROOT: /niyan
       NIYAN_CONFIG_PATH: /niyan/niyan.yaml
+      NIYAN_CONFIG_DSN: postgresql://${POSTGRES_USER:-niyan}:${POSTGRES_PASSWORD:-niyan}@postgres:5432/${POSTGRES_CONFIG_DB:-niyan}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
       NIYAN_ADMIN_USERNAME: ${NIYAN_ADMIN_USERNAME:-admin}
       NIYAN_ADMIN_PASSWORD: ${NIYAN_ADMIN_PASSWORD:-niyan}
       NIYAN_JWT_SECRET: ${NIYAN_JWT_SECRET:-change-me-niyan-dev-secret}
@@ -228,9 +232,14 @@ services:
       - ${NIYAN_ROOT:-.}:/niyan
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
-      - gateway
-      - redis
-      - loadtest
+      postgres:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      loadtest:
+        condition: service_started
 
   loadtest:
     <<: *niyan-common

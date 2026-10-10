@@ -58,8 +58,8 @@ export default function Observability() {
           <p className="page-kicker">Tracing</p>
           <h1>Observability</h1>
           <p className="muted" style={{ margin: "0.4rem 0 0" }}>
-            Langfuse for full request traces and cost. Paste your project keys here — no need to edit
-            niyan.yaml.
+            Langfuse for full request traces and cost. Paste your project keys here — they are stored
+            in the control-plane database.
           </p>
         </div>
       </div>

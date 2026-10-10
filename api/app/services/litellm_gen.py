@@ -85,7 +85,7 @@ def generate_litellm_config(config: NiyanConfig, repo_root: Optional[Path] = Non
 def apply_provider_changes(config: NiyanConfig) -> dict:
     """Regenerate LiteLLM config and restart litellm so routes pick up keys/models."""
     path = generate_litellm_config(config)
-    from app.services import docker_manager
+    from app.container import get_container
 
-    status = docker_manager.restart_service("litellm")
+    status = get_container().orchestrator.restart_service("litellm")
     return {"config_path": str(path), "litellm": status.model_dump()}

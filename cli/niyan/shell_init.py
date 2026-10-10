@@ -12,8 +12,15 @@ from typing import Optional, Tuple
 BEGIN = "# >>> niyan initialize >>>"
 END = "# <<< niyan initialize <<<"
 
+LEGACY_BEGIN = "# >>> novus initialize >>>"
+LEGACY_END = "# <<< novus initialize <<<"
+
 BLOCK_RE = re.compile(
     re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?",
+    re.DOTALL,
+)
+LEGACY_BLOCK_RE = re.compile(
+    re.escape(LEGACY_BEGIN) + r".*?" + re.escape(LEGACY_END) + r"\n?",
     re.DOTALL,
 )
 
@@ -136,11 +143,25 @@ def remove_init(rc_file: Path) -> bool:
     return True
 
 
+def remove_legacy_init(rc_file: Path) -> bool:
+    """Remove pre-rename Novus shell block from rc file."""
+    if not rc_file.exists():
+        return False
+    existing = rc_file.read_text(encoding="utf-8")
+    if LEGACY_BEGIN not in existing:
+        return False
+    updated = LEGACY_BLOCK_RE.sub("", existing)
+    updated = re.sub(r"\n{3,}", "\n\n", updated)
+    rc_file.write_text(updated, encoding="utf-8")
+    return True
+
+
 def init_shell(repo_root: Path, shell: Optional[str] = None, reverse: bool = False) -> Tuple[str, Path]:
     sh = detect_shell(shell)
     rc = rc_path_for(sh)
     if reverse:
         removed = remove_init(rc)
         return ("removed" if removed else "absent"), rc
+    remove_legacy_init(rc)
     block = build_block(repo_root, sh)
     return apply_init(rc, block)

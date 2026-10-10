@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type OnPremModel, type ProviderSection } from "../api/client";
+import { api, GATEWAY_BASE_URL, type OnPremModel, type ProviderSection } from "../api/client";
 
 type Snippet = {
   id: string;
@@ -79,7 +79,10 @@ export default function Gateway() {
   }, []);
 
   const apiKey = keys.split("\n").map((k) => k.trim()).filter(Boolean)[0] || "sk-niyan-local";
-  const origin = `http://127.0.0.1:${port}`;
+  // Behind an ingress the gateway is reached at <ingress host>/v1, not on a
+  // published port; GATEWAY_BASE_URL carries that. The port field below still
+  // configures the container's listen port, which is not what callers dial.
+  const origin = GATEWAY_BASE_URL || `http://127.0.0.1:${port}`;
 
   const chatModel = useMemo(() => {
     const local = onPrem.find(
@@ -174,7 +177,7 @@ print(chat.choices[0].message.content)`,
         port,
         api_keys: keys.split("\n").map((k) => k.trim()).filter(Boolean),
       });
-      setMsg("Gateway port and keys saved to niyan.yaml. Recreate the stack if the port changed.");
+      setMsg("Gateway port and keys saved. Recreate the stack if the port changed.");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

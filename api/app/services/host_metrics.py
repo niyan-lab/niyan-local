@@ -7,6 +7,8 @@ import subprocess
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from app.platform import resolve_platform
+
 # Seed psutil so subsequent cpu_percent(None) calls are non-zero.
 _psutil_ready = False
 
@@ -66,6 +68,12 @@ def _memory() -> Dict[str, Any]:
 
 
 def _gpu() -> Dict[str, Any]:
+    if resolve_platform() == "kubernetes":
+        return {
+            "available": False,
+            "devices": [],
+            "detail": "GPU metrics unavailable on Kubernetes (Phase B)",
+        }
     devices = _gpu_nvidia_smi() or _gpu_via_docker_exec()
     if not devices:
         return {

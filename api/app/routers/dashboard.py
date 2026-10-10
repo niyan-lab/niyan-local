@@ -7,12 +7,15 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Query
+from starlette.concurrency import run_in_threadpool
 
 from app.auth import require_admin
+from app.container import provide_orchestrator
 from app.schemas.models import ModelProvider, PROPRIETARY_PROVIDERS
-from app.services import config_manager, docker_manager, health_checker
+from app.services import config_manager, health_checker
 from app.services.host_metrics import collect_resources
 from app.services.langfuse_metrics import load_langfuse_traffic
+from app.services.orchestrator import Orchestrator
 from app.services.vector_store import get_store
 from app.settings import settings
 
@@ -48,9 +51,10 @@ async def dashboard(
     application: Optional[str] = Query(
         None, description="Filter usage by application/project id, or 'all'"
     ),
+    orchestrator: Orchestrator = Depends(provide_orchestrator),
 ) -> dict:
     cfg = config_manager.load_config()
-    services = docker_manager.list_services()
+    services = await run_in_threadpool(orchestrator.list_services)
     health = await health_checker.health_aggregate()
     # Profile-optional containers (host Ollama, unused qdrant, …) are not outages.
     visible = [s for s in services if s.status != "not_created"]
@@ -67,7 +71,7 @@ async def dashboard(
         "provider": cfg.observability.provider,
         "reachable": bool((health.get("checks") or {}).get("langfuse")),
         "keys_configured": bool(cfg.observability.public_key and cfg.observability.secret_key),
-        "ui_url": "http://127.0.0.1:3100",
+        "ui_url": settings.langfuse_ui_url,
         "note": "Tokens and proprietary API cost are pulled from Langfuse for the selected range.",
     }
 

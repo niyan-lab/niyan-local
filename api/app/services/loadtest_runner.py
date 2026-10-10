@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import socket
 import threading
 import time
@@ -15,6 +16,7 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
+from app.container import get_container
 from app.schemas.loadtest import (
     LoadTestCreate,
     LoadTestProgress,
@@ -23,8 +25,9 @@ from app.schemas.loadtest import (
     LoadTestSummary,
     LoadTestTarget,
 )
-from app.services import docker_manager
 from app.settings import settings
+
+logger = logging.getLogger(__name__)
 
 MAX_USERS = 50
 MAX_DURATION_SEC = 600
@@ -343,7 +346,7 @@ def create_and_start(body: LoadTestCreate) -> LoadTestRun:
         _write_json(d / "run.json", meta)
 
         try:
-            docker_manager.start_loadtest(
+            get_container().orchestrator.start_loadtest(
                 run_id=run_id,
                 job_path=f"/data/loadtests/{run_id}/job.json",
                 out_dir=f"/data/loadtests/{run_id}",
@@ -351,6 +354,11 @@ def create_and_start(body: LoadTestCreate) -> LoadTestRun:
                 spawn_rate=float(job["spawn_rate"]),
                 duration_sec=int(job["duration_sec"]),
                 host=str(job.get("host") or settings.gateway_url),
+                # Only consumed on Kubernetes, where there is no filesystem shared
+                # between niyan-api and the ephemeral loadtest Job pod: the job
+                # config is delivered via env var instead. Ignored on VM/docker,
+                # which already shares a bind-mounted job.json path.
+                job_body=job,
             )
         except Exception as exc:
             meta["status"] = LoadTestStatus.failed.value
@@ -389,7 +397,7 @@ def stop_run(run_id: str) -> LoadTestRun:
     if meta.get("status") != LoadTestStatus.running.value:
         raise HTTPException(status_code=400, detail=f"run is not running ({meta.get('status')})")
     try:
-        docker_manager.stop_loadtest()
+        get_container().orchestrator.stop_loadtest(run_id=run_id)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"failed to stop: {exc}") from exc
     meta["status"] = LoadTestStatus.stopped.value
@@ -408,7 +416,7 @@ def _watch_run(run_id: str) -> None:
     # Wait for Locust process (or first live.json) so we don't false-fail on startup race.
     saw_running = False
     for _ in range(40):  # up to ~20s
-        if docker_manager.loadtest_is_running():
+        if get_container().orchestrator.loadtest_is_running(run_id=run_id):
             saw_running = True
             break
         if (d / "live.json").exists() or (d / "report.html").exists():
@@ -422,11 +430,11 @@ def _watch_run(run_id: str) -> None:
 
     if saw_running:
         while time.time() < deadline:
-            running = docker_manager.loadtest_is_running()
+            running = get_container().orchestrator.loadtest_is_running(run_id=run_id)
             if not running:
                 # Brief grace — Locust may flap during shutdown; confirm still gone.
                 time.sleep(2)
-                if not docker_manager.loadtest_is_running():
+                if not get_container().orchestrator.loadtest_is_running(run_id=run_id):
                     # Prefer waiting for report.html when duration nearly complete
                     if (d / "report.html").exists() or (d / "live.json").exists():
                         break
@@ -440,13 +448,46 @@ def _watch_run(run_id: str) -> None:
     _maybe_finalize(run_id)
 
 
+def _sync_k8s_summary(run_id: str) -> None:
+    """On Kubernetes, recover the run's metrics via the K8s API (Job/pod status +
+    pod log) and stage them at the same local live.json path the rest of this
+    module already reads — since there is no filesystem shared between niyan-api
+    and the ephemeral loadtest Job pod (see D6). No-op on the VM/docker path,
+    where DockerOrchestrator exposes no get_loadtest_summary and live.json is
+    already written locally by the bind-mounted loadtest container.
+    """
+    orchestrator = get_container().orchestrator
+    fetch = getattr(orchestrator, "get_loadtest_summary", None)
+    if not callable(fetch):
+        return
+    d = run_dir(run_id)
+    if (d / "live.json").exists():
+        return  # already synced
+    try:
+        remote = fetch(run_id)
+    except Exception:
+        logger.warning("_sync_k8s_summary(%s): get_loadtest_summary raised", run_id, exc_info=True)
+        remote = None
+    if remote:
+        _write_json(d / "live.json", remote)
+    else:
+        # Not necessarily an error (the pod log may just not have the marker
+        # yet), but log it: a persistently missing/unparseable summary is what
+        # silently degrades a completed K8s run to "failed" downstream.
+        logger.debug(
+            "_sync_k8s_summary(%s): no summary recovered from K8s API yet", run_id
+        )
+
+
 def _maybe_finalize(run_id: str) -> None:
     d = run_dir(run_id)
     meta = _read_json(d / "run.json")
     if not meta or meta.get("status") != LoadTestStatus.running.value:
         return
-    if docker_manager.loadtest_is_running():
+    if get_container().orchestrator.loadtest_is_running(run_id=run_id):
         return
+
+    _sync_k8s_summary(run_id)
 
     live = _read_json(d / "live.json") or {}
     has_report = (d / "report.html").exists()

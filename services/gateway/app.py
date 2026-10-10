@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 import metrics as gw_metrics
 import pricing as gw_pricing
 import policy as gw_policy
+import runtime_config
 
 LITELLM_URL = os.getenv("LITELLM_URL", "http://litellm:4001").rstrip("/")
 LITELLM_KEY = os.getenv("LITELLM_MASTER_KEY", "sk-niyan-local")
@@ -32,53 +33,25 @@ ON_FAILURE = os.getenv("GUARDRAILS_ON_FAILURE", "allow")
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "").rstrip("/")
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
-NIYAN_CONFIG_PATH = os.getenv("NIYAN_CONFIG_PATH", "/niyan/niyan.yaml")
-
-# Cache of Langfuse creds / enterprise policy read from niyan.yaml.
-_lf_cache: Dict[str, Any] = {"mtime": None, "public": "", "secret": "", "host": ""}
-_policy_cache: Dict[str, Any] = {"mtime": None, "policy": None}
-
-
-def _read_niyan_yaml() -> Optional[Dict[str, Any]]:
-    try:
-        import yaml
-
-        with open(NIYAN_CONFIG_PATH, encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    except Exception:
-        return None
 
 
 def _read_yaml_observability() -> Optional[Dict[str, str]]:
-    try:
-        st = os.stat(NIYAN_CONFIG_PATH)
-    except OSError:
+    data = runtime_config.load()
+    if data is None:
         return None
-    if _lf_cache["mtime"] != st.st_mtime:
-        data = _read_niyan_yaml()
-        if data is None:
-            return None
-        obs = data.get("observability") or {}
-        _lf_cache.update(
-            mtime=st.st_mtime,
-            public=str(obs.get("public_key") or ""),
-            secret=str(obs.get("secret_key") or ""),
-            host=str(obs.get("host") or ""),
-        )
-    return _lf_cache
+    obs = data.get("observability") or {}
+    return {
+        "public": str(obs.get("public_key") or ""),
+        "secret": str(obs.get("secret_key") or ""),
+        "host": str(obs.get("host") or ""),
+    }
 
 
 def _read_yaml_enterprise_policy() -> Optional[Dict[str, Any]]:
-    try:
-        st = os.stat(NIYAN_CONFIG_PATH)
-    except OSError:
+    data = runtime_config.load()
+    if data is None:
         return None
-    if _policy_cache["mtime"] != st.st_mtime:
-        data = _read_niyan_yaml()
-        if data is None:
-            return None
-        _policy_cache.update(mtime=st.st_mtime, policy=data.get("enterprise_policy") or {})
-    return _policy_cache.get("policy")
+    return data.get("enterprise_policy") or {}
 
 
 def _langfuse_creds() -> tuple[str, str, str]:
