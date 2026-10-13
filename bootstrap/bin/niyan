@@ -18,6 +18,7 @@ Usage:
   niyan status
   niyan logs [-f] [service]
   niyan pull
+  niyan uninstall [--volumes]
   niyan version
   niyan help
 
@@ -164,6 +165,52 @@ cmd_down() {
   echo "Stack stopped."
 }
 
+strip_shell_block() {
+  python3 - <<'PY' || true
+import re
+from pathlib import Path
+begin, end = "# >>> niyan initialize >>>", "# <<< niyan initialize <<<"
+pat = re.compile(re.escape(begin) + r".*?" + re.escape(end) + r"\n?", re.S)
+home = Path.home()
+for rc in (home / ".zshrc", home / ".bashrc", home / ".bash_profile"):
+    if not rc.exists():
+        continue
+    text = rc.read_text(encoding="utf-8")
+    if begin not in text:
+        continue
+    rc.write_text(re.sub(r"\n{3,}", "\n\n", pat.sub("", text)), encoding="utf-8")
+    print("Removed Niyan block from", rc)
+PY
+}
+
+cmd_uninstall() {
+  volumes=0
+  for arg in "$@"; do
+    case "$arg" in
+      --volumes|-v) volumes=1 ;;
+      -h|--help)
+        echo "Usage: niyan uninstall [--volumes]"
+        echo "Stops the stack, unwires PATH, and deletes ~/.niyan"
+        return 0
+        ;;
+    esac
+  done
+  down_args=(down --remove-orphans)
+  [ "$volumes" -eq 1 ] && down_args+=(--volumes)
+  if [ -f "$STACK/docker-compose.yml" ]; then
+    run_compose "${down_args[@]}" || true
+  fi
+  strip_shell_block
+  local_link="${NIYAN_LOCAL_BIN:-$HOME/.local/bin}/niyan"
+  if [ -L "$local_link" ]; then
+    rm -f "$local_link"
+    echo "Removed $local_link"
+  fi
+  rm -rf "$NIYAN_HOME"
+  echo "Removed $NIYAN_HOME"
+  echo "Uninstalled."
+}
+
 cmd_status() {
   run_compose ps
 }
@@ -211,6 +258,7 @@ main() {
     doctor) cmd_doctor "$@" ;;
     up) cmd_up "$@" ;;
     down|stop) cmd_down "$@" ;;
+    uninstall|remove) cmd_uninstall "$@" ;;
     status|ps) cmd_status "$@" ;;
     logs) cmd_logs "$@" ;;
     pull) cmd_pull "$@" ;;

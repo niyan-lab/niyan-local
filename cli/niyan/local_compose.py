@@ -267,8 +267,11 @@ def recreate_litellm(repo_root: Path, config: NiyanConfig) -> None:
     )
 
 
-def stack_down(repo_root: Path, config: NiyanConfig) -> None:
-    run_compose(repo_root, config, ["down", "--remove-orphans"], check=False)
+def stack_down(repo_root: Path, config: NiyanConfig, volumes: bool = False) -> None:
+    args = ["down", "--remove-orphans"]
+    if volumes:
+        args.append("--volumes")
+    run_compose(repo_root, config, args, check=False)
 
 
 def stack_ps(repo_root: Path, config: NiyanConfig) -> str:

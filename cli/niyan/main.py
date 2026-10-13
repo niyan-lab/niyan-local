@@ -22,6 +22,7 @@ from niyan.config import (
 from niyan.doctor import detect_profile, run_doctor
 from niyan.local_compose import find_repo_root, recreate_litellm, stack_down, stack_logs, stack_up
 from niyan.shell_init import detect_shell, init_shell
+from niyan.uninstall import run_uninstall
 
 app = typer.Typer(
     name="niyan",
@@ -236,6 +237,36 @@ def down() -> None:
     cfg = _load(repo)
     stack_down(repo, cfg)
     console.print("[green]Stack stopped.[/green]")
+
+
+@app.command()
+def uninstall(
+    volumes: bool = typer.Option(
+        False,
+        "--volumes",
+        help="Also delete Docker volumes (Postgres, Redis, …).",
+    ),
+    keep_config: bool = typer.Option(
+        False,
+        "--keep-config",
+        help="Keep niyan.yaml and .env in the checkout.",
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not prompt."),
+) -> None:
+    """Stop the stack, unwire the shell, and remove the local venv.
+
+    Does not delete the git checkout. Prefer `./uninstall.sh` from the repo root.
+    """
+    repo = _repo()
+    if not yes:
+        prompt = "Stop Niyan, remove the shell hook, and delete .venv"
+        if volumes:
+            prompt += " (including Docker volumes)"
+        if not typer.confirm(f"{prompt}?", default=False):
+            raise typer.Abort()
+    for line in run_uninstall(repo, volumes=volumes, keep_config=keep_config):
+        console.print(f"  {line}")
+    console.print("[green]Uninstalled.[/green] Reinstall with ./install.sh or .\\install.ps1")
 
 
 @app.command()

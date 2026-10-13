@@ -51,11 +51,11 @@ Do these in order on your machine / GitHub. This is the full operator path.
 From the repo root:
 
 ```bash
-cd /path/to/AI_Infrastructure
+cd niyan-local
 export NIYAN_IMAGE_TAG=0.1.0
 # if needed:
 # export NIYAN_IMAGE_REGISTRY=ghcr.io/<your-owner>
-chmod +x scripts/pack_remote_bundle.sh bootstrap/install.sh bootstrap/bin/niyan install-remote.sh
+chmod +x scripts/pack_remote_bundle.sh bootstrap/install.sh bootstrap/bin/niyan
 ./scripts/pack_remote_bundle.sh 0.1.0
 # → dist/niyan-bundle-0.1.0.tgz
 ```
@@ -107,11 +107,11 @@ Include:
 # From repo (local bundle, no upload needed)
 export NIYAN_HOME=/tmp/niyan-smoke
 export NIYAN_PULL_ON_INSTALL=0   # set 1 after images exist in GHCR
-./install-remote.sh
+./bootstrap/install.sh
 export PATH="$NIYAN_HOME/bin:$PATH"
 niyan doctor
 # after GHCR images are private + docker login:
-# NIYAN_PULL_ON_INSTALL=1 ./install-remote.sh
+# NIYAN_PULL_ON_INSTALL=1 ./bootstrap/install.sh
 # niyan up
 ```
 
@@ -144,8 +144,10 @@ niyan up
 | `niyan status` | Compose `ps` |
 | `niyan logs [-f] [svc]` | Logs |
 | `niyan down` | Stop stack |
+| `niyan uninstall` | Stop stack, unwire PATH, delete `~/.niyan` |
+| `niyan uninstall --volumes` | Same, and delete Docker volumes |
 
-Uninstall: remove the `# >>> niyan initialize >>>` block from your shell rc, then `rm -rf ~/.niyan`.
+Uninstall also removes the `# >>> niyan initialize >>>` block from your shell rc.
 
 ---
 
@@ -155,11 +157,11 @@ Uninstall: remove the `# >>> niyan initialize >>>` block from your shell rc, the
 |------|------|
 | [deploy/docker-compose.release.yml](../deploy/docker-compose.release.yml) | Image-only compose (source of truth for packing) |
 | [bootstrap/](../bootstrap/) | Bundle contents: `bin/niyan`, `stack/`, `install.sh` |
-| [install-remote.sh](../install-remote.sh) | Local entrypoint → `bootstrap/install.sh` |
+| [bootstrap/install.sh](../bootstrap/install.sh) | Pull-only installer (`curl \| bash` or from this checkout) |
 | [scripts/pack_remote_bundle.sh](../scripts/pack_remote_bundle.sh) | Build `dist/niyan-bundle-*.tgz` |
 | [.github/workflows/release-images.yml](../.github/workflows/release-images.yml) | Build/push wrapper images to GHCR |
 
-Dev-from-clone installs stay on [install.sh](../install.sh) (venv + full Python CLI + local `docker compose build`).
+From-source installs use root [install.sh](../install.sh) / [uninstall.sh](../uninstall.sh) (venv + full Python CLI + local Compose build).
 
 ---
 

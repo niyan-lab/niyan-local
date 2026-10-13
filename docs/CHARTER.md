@@ -1,6 +1,6 @@
 # Niyan Local — charter
 
-**`niyan-local` is local deployment only:** Docker Compose, installers (`install.sh` / `install.ps1`), CLI, bootstrap/remote-install, and on-machine GHCR pull.
+**`niyan-local` is local deployment only:** Docker Compose, installers (`install.sh` / `install.ps1`), uninstallers (`uninstall.sh` / `uninstall.ps1`), CLI, bootstrap/remote-install, and on-machine GHCR pull.
 
 ## In scope
 

@@ -2,8 +2,7 @@
 # Anaconda-style remote installer for Niyan (pull-only).
 # Materializes ~/.niyan, installs a thin `niyan` CLI, and can pull images.
 #
-# From a cloned repo (dev smoke):
-#   ./install-remote.sh
+# From a cloned repo (dev smoke of the pull-only path):
 #   ./bootstrap/install.sh
 #
 # From your website (testers):
@@ -40,7 +39,6 @@ docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required (do
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # When this file is bootstrap/install.sh, SOURCE_ROOT is bootstrap/
-# When invoked via repo-root install-remote.sh, BASH_SOURCE may be the wrapper.
 if [[ -d "$SCRIPT_DIR/stack" && -f "$SCRIPT_DIR/bin/niyan" ]]; then
   BUNDLE_SRC="$SCRIPT_DIR"
 elif [[ -d "$SCRIPT_DIR/bootstrap/stack" && -f "$SCRIPT_DIR/bootstrap/bin/niyan" ]]; then
@@ -191,10 +189,7 @@ echo
 echo "  Admin UI: http://127.0.0.1:3080"
 echo "  Gateway:  http://127.0.0.1:4000"
 echo
-echo "  Stop:     niyan down"
-if [[ "$RC" != "(none)" ]]; then
-  echo "  Unwire:   remove the niyan block from $RC and rm -rf $NIYAN_HOME"
-else
-  echo "  Remove:   rm -rf $NIYAN_HOME"
-fi
+echo "  Stop:       niyan down"
+echo "  Uninstall:  niyan uninstall            # keep Docker volumes"
+echo "              niyan uninstall --volumes  # also delete volumes"
 echo

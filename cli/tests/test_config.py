@@ -5,7 +5,8 @@ from unittest.mock import patch
 from niyan.config import Profile, load_config, uses_host_ollama
 from niyan.doctor import detect_profile
 from niyan.local_compose import compose_cmd, compose_files, find_repo_root, guardrails_url
-from niyan.shell_init import build_block, detect_shell, remove_legacy_init
+from niyan.shell_init import build_block, detect_shell, remove_init, remove_legacy_init
+from niyan.uninstall import run_uninstall
 
 
 def test_load_example_config():
@@ -75,6 +76,45 @@ def test_powershell_shell_block():
     assert "NIYAN_ROOT" in block
     assert "niyan.ps1" in block
     assert detect_shell("pwsh") == "powershell"
+
+
+def test_remove_niyan_shell_block(tmp_path):
+    rc = tmp_path / ".zshrc"
+    rc.write_text(
+        "# before\n"
+        "# >>> niyan initialize >>>\n"
+        'export NIYAN_ROOT="/repo"\n'
+        "# <<< niyan initialize <<<\n"
+        "# after\n",
+        encoding="utf-8",
+    )
+    assert remove_init(rc) is True
+    text = rc.read_text(encoding="utf-8")
+    assert "niyan initialize" not in text
+    assert "# before" in text
+    assert "# after" in text
+
+
+def test_run_uninstall_removes_venv_and_config(tmp_path):
+    repo = tmp_path / "niyan-local"
+    (repo / "cli").mkdir(parents=True)
+    (repo / ".venv" / "bin").mkdir(parents=True)
+    (repo / ".venv" / "bin" / "niyan").write_text("#!/bin/sh\n", encoding="utf-8")
+    (repo / "niyan.yaml").write_text("proxy: {}\n", encoding="utf-8")
+    (repo / ".env").write_text("X=1\n", encoding="utf-8")
+    (repo / "services" / "litellm").mkdir(parents=True)
+    (repo / "services" / "litellm" / "config.generated.yaml").write_text("x: 1\n", encoding="utf-8")
+
+    with patch("niyan.uninstall.load_config", side_effect=RuntimeError("no docker")), patch(
+        "niyan.uninstall.init_shell", return_value=("removed", tmp_path / ".zshrc")
+    ):
+        notes = run_uninstall(repo, volumes=False, keep_config=False)
+
+    assert not (repo / ".venv").exists()
+    assert not (repo / "niyan.yaml").exists()
+    assert not (repo / ".env").exists()
+    assert not (repo / "services" / "litellm" / "config.generated.yaml").exists()
+    assert any("left checkout" in n for n in notes)
 
 
 def test_remove_legacy_novus_shell_block(tmp_path):

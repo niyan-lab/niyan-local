@@ -25,18 +25,20 @@ It wires together:
 
 ## Install
 
+See the [README](../README.md) for the full install and uninstall steps.
+
 ### macOS / Linux
 
 ```bash
-cd /path/to/AI_Infrastructure
-chmod +x install.sh scripts/smoke_test.sh scripts/rag_smoke_test.sh
+cd niyan-local
 ./install.sh
+source ~/.zshrc    # or ~/.bashrc
 ```
 
 ### Windows
 
 ```powershell
-cd C:\path\to\AI_Infrastructure
+cd niyan-local
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
@@ -77,7 +79,7 @@ niyan embeddings pull         # configured embeddings.model (default nomic-embed
 
 Use **local Ollama models** for zero API cost, or **OpenAI / Gemini / Anthropic** for managed cloud quality — all go through the same OpenAI-compatible gateway on `:4000`. You do **not** pull proprietary models; you **set a provider API key** and **enable** the model.
 
-Full reference (YAML, troubleshooting, dashboard): [README — Proprietary models](../README.md#proprietary-models-openai--gemini--anthropic).
+Full routing background: [Arch.md](Arch.md).
 
 ### Curated catalog
 
@@ -304,6 +306,15 @@ Only one provider Compose profile runs at a time.
 
 ## Tear down
 
+Stop the stack (keep the install):
+
 ```bash
 niyan down
+```
+
+Remove the install (venv + shell hook; checkout stays):
+
+```bash
+./uninstall.sh
+# Windows: .\uninstall.ps1
 ```
