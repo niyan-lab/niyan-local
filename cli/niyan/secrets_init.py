@@ -280,9 +280,12 @@ class PgMigrator:
     def rotate_password(self, new: str) -> None:
         assert re.fullmatch(r"[0-9a-f]+", new)
         self.psql("postgres", f'ALTER USER "{self.user}" WITH PASSWORD \'{new}\';\n')
-        # Verify over TCP (password auth), password via stdin, never argv.
+        # Verify over TCP with password auth. 127.0.0.1 is `trust` in the image's
+        # pg_hba, so connect to the container's own network IP (scram). The
+        # password goes via stdin, never argv.
         r = self.exec(
-            ["sh", "-c", f'read -r P; PGPASSWORD="$P" psql -h 127.0.0.1 -U {self.user} -d postgres -qtAc "select 1"'],
+            ["sh", "-c", 'read -r P; H="$(hostname -i | cut -d" " -f1)"; '
+             f'PGPASSWORD="$P" psql -h "$H" -U {self.user} -d postgres -qtAc "select 1"'],
             stdin=new + "\n", check=False,
         )
         if r.returncode != 0 or "1" not in r.stdout:

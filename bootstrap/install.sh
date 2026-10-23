@@ -212,7 +212,7 @@ if [[ "$PG_VOLUME" == "1" ]]; then
         printf 'ALTER USER "%s" WITH PASSWORD '"'"'%s'"'"';\n' "$PG_USER" "$newpw" | pg_sql postgres >/dev/null \
           || die "ALTER USER failed; .env unchanged"
         printf '%s\n' "$newpw" | pg_compose exec -T postgres sh -c \
-          'read -r P; PGPASSWORD="$P" psql -h 127.0.0.1 -U "$0" -d postgres -qtAc "select 1"' "$PG_USER" >/dev/null \
+          'read -r P; H="$(hostname -i | cut -d" " -f1)"; PGPASSWORD="$P" psql -h "$H" -U "$0" -d postgres -qtAc "select 1"' "$PG_USER" >/dev/null \
           || die "new Postgres password did not verify over TCP"
         upsert_env POSTGRES_PASSWORD "$newpw" "$STACK/.env"
         echo "    rotated POSTGRES_PASSWORD (ALTER USER)"
