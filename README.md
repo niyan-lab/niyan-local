@@ -125,3 +125,9 @@ bootstrap/                   pull-only bundle (GHCR)
 | [docs/Arch.md](docs/Arch.md) | Routing and runtime config |
 | [docs/remote-install.md](docs/remote-install.md) | GHCR / beta pull-only path |
 | [docs/CHARTER.md](docs/CHARTER.md) | Local-only scope |
+
+## License
+
+Copyright 2026 Niyan Lab.
+
+Licensed under the [Apache License, Version 2.0](LICENSE). Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
