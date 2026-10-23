@@ -6,6 +6,7 @@ set -euo pipefail
 NIYAN_HOME="${NIYAN_HOME:-$HOME/.niyan}"
 STACK="${NIYAN_STACK:-$NIYAN_HOME/stack}"
 export NIYAN_ROOT="${NIYAN_ROOT:-$STACK}"
+NIYAN_PROJECT="${NIYAN_PROJECT:-niyan}"  # override only for side-by-side tests
 
 usage() {
   cat <<'EOF'
@@ -18,6 +19,7 @@ Usage:
   niyan status
   niyan logs [-f] [service]
   niyan pull
+  niyan secrets rotate gateway-key   (then: niyan up)
   niyan uninstall [--volumes]
   niyan version
   niyan help
@@ -46,7 +48,7 @@ os_name() {
 # Prints compose file/profile args as separate lines (safe for Bash 3.2).
 compose_line_args() {
   echo "--project-name"
-  echo "niyan"
+  echo "$NIYAN_PROJECT"
   echo "-f"
   echo "$STACK/docker-compose.yml"
   case "$(os_name)" in
@@ -81,7 +83,7 @@ run_compose() {
     if [ -z "$(eval echo "\${$v:-}")" ]; then export "$v=__niyan_unused__"; fi
   done
   export NIYAN_ROOT="$STACK"
-  export COMPOSE_PROJECT_NAME=niyan
+  export COMPOSE_PROJECT_NAME="$NIYAN_PROJECT"
   # Older GHCR tags may be amd64-only; allow pull/run on Apple Silicon via emulation
   # until multi-arch images are published. Override with DOCKER_DEFAULT_PLATFORM=.
   if [ -z "${DOCKER_DEFAULT_PLATFORM:-}" ]; then
@@ -166,6 +168,38 @@ check_secrets() {
     echo "Re-run the Niyan installer to generate them (existing data is migrated in place)." >&2
     return 1
   fi
+}
+
+# Gateway key rotation. niyan.yaml (proxy.api_keys) is the source; .env mirrors it
+# for Compose. The Admin UI shows keys read-only.
+cmd_secrets() {
+  need_stack
+  case "${1:-} ${2:-}" in
+    "rotate gateway-key"|"rotate gateway-keys") ;;
+    *) echo "Usage: niyan secrets rotate gateway-key" >&2; return 2 ;;
+  esac
+  local key tmp yaml="$STACK/niyan.yaml"
+  key="sk-niyan-$(openssl rand -hex 24)"
+  [ -f "$yaml" ] || : >"$yaml"
+  tmp="$(mktemp)"
+  awk -v v="$key" '
+    function emit() { print "  api_keys:"; print "    - \"" v "\""; done=1 }
+    /^[^ #][^:]*:/ { if (inp && !done) emit(); inp = ($0 ~ /^proxy:/); if (inp) seen=1; skip=0; print; next }
+    inp && /^[ ]+api_keys:/ { emit(); skip=1; next }
+    inp && skip && /^[ ]+-/ { next }
+    { skip=0; print }
+    END { if (inp && !done) emit(); if (!seen) { print ""; print "proxy:"; emit() } }' "$yaml" >"$tmp"
+  cat "$tmp" >"$yaml"
+  if grep -qE "^LITELLM_MASTER_KEY=" "$STACK/.env" 2>/dev/null; then
+    awk -v v="$key" 'BEGIN{FS=OFS="="} $1=="LITELLM_MASTER_KEY"{$0="LITELLM_MASTER_KEY="v} {print}' "$STACK/.env" >"$tmp"
+    cat "$tmp" >"$STACK/.env"
+  else
+    printf 'LITELLM_MASTER_KEY=%s\n' "$key" >>"$STACK/.env"
+  fi
+  rm -f "$tmp"
+  chmod 600 "$yaml" "$STACK/.env"
+  echo "Rotated the gateway key (saved in $yaml and $STACK/.env; not printed)."
+  echo "Run: niyan up   (recreates the gateway so it enforces the new key)"
 }
 
 cmd_up() {
@@ -299,6 +333,7 @@ main() {
     status|ps) cmd_status "$@" ;;
     logs) cmd_logs "$@" ;;
     pull) cmd_pull "$@" ;;
+    secrets) cmd_secrets "$@" ;;
     version|--version|-V) cmd_version "$@" ;;
     help|-h|--help) usage ;;
     *)
