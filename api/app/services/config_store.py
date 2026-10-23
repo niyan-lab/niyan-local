@@ -17,6 +17,7 @@ from urllib.parse import urlparse, urlunparse
 import yaml
 
 from app.schemas.models import NiyanConfig
+from app.services.config_secrets import has_secrets, merge_incoming, overlay_secrets, strip_secrets, write_private
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,15 @@ class FileConfigStore:
         return NiyanConfig()
 
     def save(self, config: NiyanConfig) -> NiyanConfig:
+        current = None
+        if self.path.exists():
+            try:
+                current = NiyanConfig.model_validate(yaml.safe_load(self.path.read_text()) or {})
+            except Exception:
+                current = None
+        config = merge_incoming(config, current)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(yaml.safe_dump(config.model_dump(mode="json"), sort_keys=False))
+        write_private(self.path, yaml.safe_dump(config.model_dump(mode="json"), sort_keys=False))
         return config
 
 
@@ -103,10 +111,13 @@ class DbConfigStore:
     def load(self) -> NiyanConfig:
         try:
             self.ensure_schema()
+            file_cfg = self.file_store.load()
             cfg = self._load_db()
             if cfg is None:
-                cfg = self.file_store.load()
+                cfg = file_cfg
                 self._save_db(cfg)
+            # niyan.yaml is authoritative for secrets; DB/Redis never hold them.
+            cfg = overlay_secrets(cfg, file_cfg)
             self._publish(cfg)
             return cfg
         except Exception as exc:
@@ -115,6 +126,11 @@ class DbConfigStore:
 
     def save(self, config: NiyanConfig) -> NiyanConfig:
         db_error: Optional[BaseException] = None
+        try:
+            current = self.file_store.load() if self.file_store.path.exists() else None
+        except Exception:
+            current = None
+        config = merge_incoming(config, current)
         try:
             self.ensure_schema()
             self._save_db(config)
@@ -180,12 +196,18 @@ class DbConfigStore:
             ).fetchone()
         if not row or row.get("payload") is None:
             return None
-        return NiyanConfig.model_validate(row["payload"])
+        cfg = NiyanConfig.model_validate(row["payload"])
+        if has_secrets(row["payload"]):
+            # Legacy row (pre secret-scrub): rewrite without secrets so old defaults
+            # such as admin/niyan or sk-niyan-local can never be written back.
+            logger.warning("scrubbing secrets from legacy %s row", CONFIG_TABLE)
+            self._save_db(cfg)
+        return cfg
 
     def _save_db(self, config: NiyanConfig) -> None:
         from psycopg.types.json import Jsonb
 
-        payload = Jsonb(config.model_dump(mode="json"))
+        payload = Jsonb(strip_secrets(config))
         with self._connect() as conn:
             conn.execute(
                 f"""
@@ -228,7 +250,7 @@ class DbConfigStore:
         if client is None:
             return
         try:
-            client.set(REDIS_CONFIG_JSON, json.dumps(config.model_dump(mode="json")))
+            client.set(REDIS_CONFIG_JSON, json.dumps(strip_secrets(config)))
             client.set(REDIS_CONFIG_VERSION, str(time.time_ns()))
         except Exception as exc:
             logger.warning("config redis publish failed: %s", exc)

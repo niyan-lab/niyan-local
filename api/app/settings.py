@@ -25,7 +25,6 @@ class Settings(BaseSettings):
     niyan_admin_username: str = "admin"
     niyan_admin_password: str = ""
     niyan_jwt_secret: str = ""
-    niyan_allow_insecure_defaults: bool = False
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 12
     niyan_cors_origins: str = ""
@@ -48,27 +47,35 @@ class Settings(BaseSettings):
     embeddings_model: str = "nomic-embed-text"
 
     def insecure_secrets(self) -> list[str]:
-        """Secret settings that are empty or shipped defaults."""
-        bad_values = {"", "niyan", "sk-niyan-local", "change-me-niyan-dev-secret"}
+        """Secret settings that are empty or shipped defaults (shared deny list)."""
+        from app import secrets_policy as sp
 
-        def bad(v: str) -> bool:
-            v = (v or "").strip()
-            return v in bad_values or "change-me" in v.lower()
-
-        out = []
-        if bad(self.niyan_admin_password):
-            out.append("NIYAN_ADMIN_PASSWORD")
-        if bad(self.niyan_jwt_secret):
-            out.append("NIYAN_JWT_SECRET")
+        out = sp.bad_names(
+            [
+                ("NIYAN_ADMIN_PASSWORD", self.niyan_admin_password),
+                ("NIYAN_JWT_SECRET", self.niyan_jwt_secret),
+                ("LITELLM_MASTER_KEY", self.litellm_master_key),
+            ]
+        )
+        dsn = self.resolved_config_dsn()
+        if dsn and sp.dsn_password_insecure(dsn):
+            out.append("NIYAN_CONFIG_DSN password")
+        if self.pgvector_dsn and sp.dsn_password_insecure(self.pgvector_dsn):
+            out.append("PGVECTOR_DSN password")
         return out
 
     def assert_secure(self) -> None:
+        from app import secrets_policy as sp
+
         bad = self.insecure_secrets()
-        if bad and not self.niyan_allow_insecure_defaults:
-            raise RuntimeError(
-                "Refusing to start: empty or default secrets: " + ", ".join(bad)
-                + ". Run ./install.sh (niyan secrets init) or set NIYAN_ALLOW_INSECURE_DEFAULTS=1 for dev only."
-            )
+        if not bad:
+            return
+        if sp.insecure_allowed():
+            return
+        raise RuntimeError(
+            "Refusing to start: empty or default secrets: " + ", ".join(bad)
+            + ". Run ./install.sh (niyan secrets init)."
+        )
 
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.niyan_cors_origins.split(",") if o.strip()]

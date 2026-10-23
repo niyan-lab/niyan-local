@@ -248,6 +248,8 @@ services:
     <<: *niyan-common
     build:
       context: ../services/loadtest
+    environment:
+      NIYAN_LOADTEST_BEARER: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY unset - run ./install.sh or niyan secrets init}
     volumes:
       - ${NIYAN_ROOT:-..}/data/loadtests:/data/loadtests
     # Idle runner; niyan-api starts Locust headless via docker exec per run.

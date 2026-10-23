@@ -246,6 +246,8 @@ services:
   loadtest:
     <<: *niyan-common
     image: ${NIYAN_IMAGE_REGISTRY:-ghcr.io/intelligentindia7}/niyan-loadtest:${NIYAN_IMAGE_TAG:-0.1.0}
+    environment:
+      NIYAN_LOADTEST_BEARER: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY unset - run ./install.sh or niyan secrets init}
     volumes:
       - ${NIYAN_ROOT:-.}/data/loadtests:/data/loadtests
     command: ["sleep", "infinity"]

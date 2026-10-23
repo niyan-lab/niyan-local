@@ -19,6 +19,7 @@ import metrics as gw_metrics
 import pricing as gw_pricing
 import policy as gw_policy
 import runtime_config
+import secrets_policy
 
 LITELLM_URL = os.getenv("LITELLM_URL", "http://litellm:4001").rstrip("/")
 LITELLM_KEY = os.getenv("LITELLM_MASTER_KEY", "")
@@ -27,18 +28,23 @@ MASTER_KEYS = {
     for k in os.getenv("NIYAN_API_KEYS", LITELLM_KEY).split(",")
     if k.strip()
 }
-_INSECURE_KEYS = {"", "sk-niyan-local", "niyan"}
-if os.getenv("NIYAN_ALLOW_INSECURE_DEFAULTS", "").lower() not in {"1", "true", "yes"}:
-    if (
-        LITELLM_KEY.strip() in _INSECURE_KEYS
-        or "change-me" in LITELLM_KEY.lower()
-        or not MASTER_KEYS
-        or MASTER_KEYS & _INSECURE_KEYS
-    ):
+
+
+def _check_secrets() -> None:
+    if secrets_policy.insecure_allowed():
+        return
+    bad = secrets_policy.bad_names([("LITELLM_MASTER_KEY", LITELLM_KEY)])
+    bad += [f"NIYAN_API_KEYS[{i}]" for i, k in enumerate(sorted(MASTER_KEYS)) if secrets_policy.is_insecure(k)]
+    if not MASTER_KEYS:
+        bad.append("NIYAN_API_KEYS")
+    if bad:
         raise SystemExit(
-            "Refusing to start: LITELLM_MASTER_KEY / NIYAN_API_KEYS empty or default. "
-            "Run ./install.sh (niyan secrets init) or set NIYAN_ALLOW_INSECURE_DEFAULTS=1 for dev only."
+            "Refusing to start: empty or default secrets: " + ", ".join(bad)
+            + ". Run ./install.sh (niyan secrets init)."
         )
+
+
+_check_secrets()
 GUARDRAILS_URL = os.getenv("GUARDRAILS_URL", "").rstrip("/")
 GUARDRAILS_ENABLED = os.getenv("GUARDRAILS_ENABLED", "true").lower() == "true"
 ON_FAILURE = os.getenv("GUARDRAILS_ON_FAILURE", "allow")
@@ -51,7 +57,12 @@ def _read_yaml_observability() -> Optional[Dict[str, str]]:
     data = runtime_config.load()
     if data is None:
         return None
-    obs = data.get("observability") or {}
+    obs = dict(data.get("observability") or {})
+    if not obs.get("secret_key") or not obs.get("public_key"):
+        # Redis payload is secret-free; read Langfuse keys from the mounted niyan.yaml.
+        file_obs = (runtime_config._from_file() or {}).get("observability") or {}
+        for k in ("public_key", "secret_key"):
+            obs[k] = obs.get(k) or file_obs.get(k) or ""
     return {
         "public": str(obs.get("public_key") or ""),
         "secret": str(obs.get("secret_key") or ""),
@@ -169,7 +180,7 @@ class EmbeddingRequest(BaseModel):
 
 def _check_key(credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)) -> str:
     token = credentials.credentials.strip()
-    if token not in MASTER_KEYS:
+    if not secrets_policy.ct_in(token, MASTER_KEYS):
         raise HTTPException(status_code=401, detail="Invalid API key")
     return token
 
@@ -363,7 +374,7 @@ async def root() -> Dict[str, Any]:
         "embeddings": "POST /v1/embeddings",
         "models": "GET /v1/models",
         "health": "GET /health",
-        "default_api_key": "<your-key: niyan gateway keys>",
+        "api_key_hint": "<your-key: niyan gateway keys>",
         "example_curl": (
             "curl http://127.0.0.1:4000/v1/chat/completions "
             '-H "Authorization: Bearer $NIYAN_API_KEY" '

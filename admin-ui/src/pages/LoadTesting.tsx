@@ -383,7 +383,7 @@ export default function LoadTesting() {
 
         <div className="field">
           <label>Bearer token</label>
-          <input value={auth} onChange={(e) => setAuth(e.target.value)} autoComplete="off" />
+          <input value={auth} onChange={(e) => setAuth(e.target.value)} autoComplete="off" placeholder="empty = gateway key (server-side)" />
         </div>
 
         <div className="row" style={{ gap: "0.5rem" }}>

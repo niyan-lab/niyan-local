@@ -28,6 +28,8 @@ JOB = _load_job()
 def _auth_headers(job: Dict[str, Any]) -> Dict[str, str]:
     headers: Dict[str, str] = {"Content-Type": "application/json"}
     token = (job.get("auth_bearer") or "").strip()
+    if not token and job.get("use_gateway_key"):
+        token = os.environ.get("NIYAN_LOADTEST_BEARER", "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
     custom = job.get("headers") or {}
