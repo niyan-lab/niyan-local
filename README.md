@@ -14,7 +14,7 @@ LiteLLM is never exposed to clients. Postgres is the live config store; Redis is
 ## Prerequisites
 
 - Docker Desktop (or Engine + Compose v2)
-- Python 3.9+
+- Python 3.9+ (on Linux, also install the `python3-venv` package)
 - **macOS / Windows:** [Ollama](https://ollama.com) on the **host**
 - **Linux:** Ollama runs in Compose (`linux-cpu` / `linux-gpu`)
 

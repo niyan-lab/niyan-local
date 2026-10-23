@@ -53,16 +53,20 @@ if [[ -x "$NIYAN" ]]; then
   args=(uninstall --yes)
   [[ "$VOLUMES" == "1" ]] && args+=(--volumes)
   [[ "$KEEP_CONFIG" == "1" ]] && args+=(--keep-config)
-  "$NIYAN" "${args[@]}"
-  exit 0
+  if "$NIYAN" "${args[@]}"; then
+    exit 0
+  fi
+  echo "CLI failed — falling back to manual cleanup"
 fi
 
-echo "CLI venv missing — falling back to Compose + shell cleanup"
+[[ ! -x "$NIYAN" ]] && echo "CLI venv missing — falling back to Compose + shell cleanup"
 
 if command -v docker >/dev/null 2>&1 && [[ -f "$ROOT/deploy/docker-compose.yml" ]]; then
   compose=(docker compose --project-name niyan -f "$ROOT/deploy/docker-compose.yml")
   [[ -f "$ROOT/deploy/docker-compose.host-ollama.yml" ]] && \
     compose+=(-f "$ROOT/deploy/docker-compose.host-ollama.yml")
+  # Include all profiles to ensure all volumes are removed when --volumes is used
+  compose+=(--profile ollama --profile obs --profile guard-llm --profile guard-nemo --profile admin --profile vector-qdrant)
   down_args=(down --remove-orphans)
   [[ "$VOLUMES" == "1" ]] && down_args+=(--volumes)
   "${compose[@]}" "${down_args[@]}" || true

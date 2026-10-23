@@ -18,7 +18,7 @@ It wires together:
 ## Prerequisites
 
 - Docker + Docker Compose v2 (Docker Desktop on macOS / Windows)
-- Python 3.9+
+- Python 3.9+ (on Linux, also install the `python3-venv` package)
 - **macOS / Windows:** [Ollama](https://ollama.com) installed and running on the **host** (Metal on Mac; Docker Desktop uses `host.docker.internal`)
 - **Linux:** Ollama runs in Compose (`ollama` profile), unless you override `ollama.host`
 - **Windows alternative:** WSL2 Ubuntu + Docker Desktop WSL integration, then use `./install.sh` (Linux profiles)
