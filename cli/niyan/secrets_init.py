@@ -334,7 +334,7 @@ class PgMigrator:
             # Exact match only: 'role "x" does not exist' etc. must stay unknown.
             if missing_database(r.stderr or "", db):
                 return 0
-            self.last_error = (r.stderr or r.stdout or "")[-300:]
+            self.last_error = " ".join((r.stderr or r.stdout or "").split())[-300:]
             return None
         out = r.stdout.strip().splitlines()
         if not out or not re.fullmatch(r"[0-9]+", out[-1].strip()):
