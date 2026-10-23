@@ -80,8 +80,8 @@ pricing:
 
 proxy:
   port: 4000
-  api_keys:
-    - sk-niyan-local
+  # Generated per install by ./install.sh (`niyan secrets init`).
+  api_keys: []
 
 observability:
   enabled: true
@@ -174,5 +174,6 @@ ollama:
 
 admin_auth:
   username: admin
-  password: niyan
-  jwt_secret: change-me-niyan-dev-secret
+  # Generated per install by ./install.sh. See: niyan secrets show
+  password: ""
+  jwt_secret: ""

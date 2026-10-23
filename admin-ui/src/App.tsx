@@ -182,7 +182,7 @@ function currentSection(pathname: string) {
 function Login({ theme, onToggleTheme }: { theme: ResolvedTheme; onToggleTheme: () => void }) {
   const nav = useNavigate();
   const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("niyan");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 

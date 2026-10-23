@@ -22,8 +22,14 @@ fi
 python3 -m venv "$ROOT/.venv"
 "$ROOT/.venv/bin/pip" install -U pip setuptools wheel --quiet
 "$ROOT/.venv/bin/pip" install -e "$ROOT/cli" --quiet
-cp -n "$ROOT/.env.example" "$ROOT/.env" 2>/dev/null || true
-cp -n "$ROOT/configs/niyan.example.yaml" "$ROOT/niyan.yaml" 2>/dev/null || true
+FIRST_INSTALL=0
+[ -f "$ROOT/niyan.yaml" ] || FIRST_INSTALL=1
+umask 077
+[ -f "$ROOT/.env" ] || cp "$ROOT/.env.example" "$ROOT/.env"
+[ -f "$ROOT/niyan.yaml" ] || cp "$ROOT/configs/niyan.example.yaml" "$ROOT/niyan.yaml"
+umask 022
+# Per-install secrets: fills empty/default values only, keeps existing ones (chmod 600).
+NIYAN_ROOT="$ROOT" "$ROOT/.venv/bin/niyan" secrets init
 # Generate LiteLLM routes from niyan.yaml (required Compose mount)
 "$ROOT/.venv/bin/python" - <<PY
 from pathlib import Path
@@ -39,6 +45,7 @@ PY
 cat > "$ROOT/niyan.sh" <<'EOF'
 #!/usr/bin/env bash
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+export NIYAN_ROOT="$ROOT"
 exec "$ROOT/.venv/bin/niyan" "$@"
 EOF
 chmod +x "$ROOT/niyan.sh"
@@ -61,6 +68,13 @@ echo
 echo "    niyan doctor"
 echo "    niyan up"
 echo "    niyan status"
+echo
+if [ "$FIRST_INSTALL" = "1" ]; then
+  echo "  Admin UI login (shown once; stored in niyan.yaml, chmod 600):"
+  NIYAN_ROOT="$ROOT" "$ROOT/.venv/bin/niyan" secrets show | sed 's/^/    /'
+else
+  echo "  Existing secrets kept. Show the admin login with: niyan secrets show"
+fi
 echo
 echo "  Uninstall:           ./uninstall.sh"
 echo "  Repo-local fallback: ./niyan.sh <command>"

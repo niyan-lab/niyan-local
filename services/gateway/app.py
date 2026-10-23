@@ -21,12 +21,24 @@ import policy as gw_policy
 import runtime_config
 
 LITELLM_URL = os.getenv("LITELLM_URL", "http://litellm:4001").rstrip("/")
-LITELLM_KEY = os.getenv("LITELLM_MASTER_KEY", "sk-niyan-local")
+LITELLM_KEY = os.getenv("LITELLM_MASTER_KEY", "")
 MASTER_KEYS = {
     k.strip()
     for k in os.getenv("NIYAN_API_KEYS", LITELLM_KEY).split(",")
     if k.strip()
 }
+_INSECURE_KEYS = {"", "sk-niyan-local", "niyan"}
+if os.getenv("NIYAN_ALLOW_INSECURE_DEFAULTS", "").lower() not in {"1", "true", "yes"}:
+    if (
+        LITELLM_KEY.strip() in _INSECURE_KEYS
+        or "change-me" in LITELLM_KEY.lower()
+        or not MASTER_KEYS
+        or MASTER_KEYS & _INSECURE_KEYS
+    ):
+        raise SystemExit(
+            "Refusing to start: LITELLM_MASTER_KEY / NIYAN_API_KEYS empty or default. "
+            "Run ./install.sh (niyan secrets init) or set NIYAN_ALLOW_INSECURE_DEFAULTS=1 for dev only."
+        )
 GUARDRAILS_URL = os.getenv("GUARDRAILS_URL", "").rstrip("/")
 GUARDRAILS_ENABLED = os.getenv("GUARDRAILS_ENABLED", "true").lower() == "true"
 ON_FAILURE = os.getenv("GUARDRAILS_ON_FAILURE", "allow")
@@ -67,7 +79,7 @@ def _langfuse_creds() -> tuple[str, str, str]:
 
 bearer_scheme = HTTPBearer(
     auto_error=True,
-    description="Use the Niyan API key, e.g. `sk-niyan-local` (Authorize with value only; Swagger adds Bearer).",
+    description="Use your Niyan API key (`niyan gateway keys`) (Authorize with value only; Swagger adds Bearer).",
 )
 
 app = FastAPI(
@@ -75,7 +87,7 @@ app = FastAPI(
     version="0.1.0",
     description=(
         "OpenAI-compatible proxy for Niyan.\n\n"
-        "**Try it here:** use **Authorize** with API key `sk-niyan-local`, then "
+        "**Try it here:** use **Authorize** with your API key (`niyan gateway keys`), then "
         "`POST /v1/chat/completions`.\n\n"
         "Note: the base path `/v1` alone is not a chat endpoint — use `/v1/chat/completions`."
     ),
@@ -329,7 +341,7 @@ def custom_openapi() -> Dict[str, Any]:
             "type": "http",
             "scheme": "bearer",
             "bearerFormat": "API Key",
-            "description": "Enter `sk-niyan-local` (or another key from niyan.yaml).",
+            "description": "Enter a key from niyan.yaml (`niyan gateway keys`).",
         }
     }
     schema["security"] = [{"HTTPBearer": []}]
@@ -351,10 +363,10 @@ async def root() -> Dict[str, Any]:
         "embeddings": "POST /v1/embeddings",
         "models": "GET /v1/models",
         "health": "GET /health",
-        "default_api_key": "sk-niyan-local",
+        "default_api_key": "<your-key: niyan gateway keys>",
         "example_curl": (
             "curl http://127.0.0.1:4000/v1/chat/completions "
-            '-H "Authorization: Bearer sk-niyan-local" '
+            '-H "Authorization: Bearer $NIYAN_API_KEY" '
             '-H "Content-Type: application/json" '
             '-d \'{"model":"llama3.2:3b","messages":[{"role":"user","content":"Hello"}]}\''
         ),

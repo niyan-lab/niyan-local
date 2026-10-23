@@ -181,7 +181,7 @@ def _build_job(body: LoadTestCreate) -> Dict[str, Any]:
 
     job: Dict[str, Any] = {
         "target_type": body.target_type.value,
-        "auth_bearer": (body.auth_bearer or "sk-niyan-local").strip(),
+        "auth_bearer": (body.auth_bearer or settings.litellm_master_key or "").strip(),
         "host": (body.host or settings.gateway_url).rstrip("/"),
         "users": users,
         "spawn_rate": spawn,

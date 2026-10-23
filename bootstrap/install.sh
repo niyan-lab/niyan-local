@@ -120,6 +120,31 @@ upsert_env() {
 upsert_env NIYAN_IMAGE_REGISTRY "$IMAGE_REGISTRY" "$STACK/.env"
 upsert_env NIYAN_IMAGE_TAG "$IMAGE_TAG" "$STACK/.env"
 
+# Per-install secrets (bash 3.2 + BSD/LibreSSL openssl compatible). Only fills
+# empty or shipped-default values; never regenerates over existing ones.
+require_cmd openssl
+is_insecure() {
+  case "$1" in
+    ""|niyan|sk-niyan-local|*change-me*|0000000000000000000000000000000000000000000000000000000000000000) return 0 ;;
+  esac
+  return 1
+}
+GENERATED_ADMIN=0
+for key in NIYAN_ADMIN_PASSWORD NIYAN_JWT_SECRET LITELLM_MASTER_KEY POSTGRES_PASSWORD \
+           LANGFUSE_NEXTAUTH_SECRET LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY; do
+  cur="$(grep -E "^${key}=" "$STACK/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  if is_insecure "$cur"; then
+    case "$key" in
+      LITELLM_MASTER_KEY) val="sk-niyan-$(openssl rand -hex 24)" ;;
+      NIYAN_ADMIN_PASSWORD) val="$(openssl rand -hex 12)"; GENERATED_ADMIN=1 ;;
+      *) val="$(openssl rand -hex 32)" ;;
+    esac
+    upsert_env "$key" "$val" "$STACK/.env"
+  fi
+done
+chmod 600 "$STACK/.env"
+[ -f "$STACK/niyan.yaml" ] && chmod 600 "$STACK/niyan.yaml"
+
 # PATH: prefer ~/.niyan/bin; also try ~/.local/bin symlink
 chmod +x "$BIN_DIR/niyan"
 mkdir -p "$LOCAL_BIN" 2>/dev/null || true
@@ -187,6 +212,11 @@ echo "    niyan doctor"
 echo "    niyan up"
 echo
 echo "  Admin UI: http://127.0.0.1:3080"
+if [ "$GENERATED_ADMIN" = "1" ]; then
+  echo "            login: admin / $(grep -E '^NIYAN_ADMIN_PASSWORD=' "$STACK/.env" | cut -d= -f2-)  (shown once; stored in $STACK/.env)"
+else
+  echo "            login: admin / see NIYAN_ADMIN_PASSWORD in $STACK/.env"
+fi
 echo "  Gateway:  http://127.0.0.1:4000"
 echo
 echo "  Stop:       niyan down"

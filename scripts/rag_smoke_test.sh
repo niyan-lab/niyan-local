@@ -14,7 +14,7 @@ set -euo pipefail
 
 PROXY_URL="${PROXY_URL:-http://127.0.0.1:4000}"
 API_URL="${API_URL:-http://127.0.0.1:8100}"
-API_KEY="${API_KEY:-sk-niyan-local}"
+API_KEY="${API_KEY:-$(niyan gateway keys 2>/dev/null | head -1)}"
 EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
 EMBED_DIMS="${EMBED_DIMS:-768}"
 ADMIN_USER="${ADMIN_USER:-admin}"

@@ -52,6 +52,14 @@ if ((Test-Path $yamlExample) -and -not (Test-Path $yamlDest)) {
     Copy-Item $yamlExample $yamlDest
 }
 
+$env:NIYAN_ROOT = $Root
+& $niyan secrets init
+if ($LASTEXITCODE -ne 0) { throw "niyan secrets init failed" }
+# Restrict secret files to the current user
+foreach ($f in @($envDest, $yamlDest)) {
+    if (Test-Path $f) { icacls $f /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null }
+}
+
 $py = Join-Path $Root ".venv\Scripts\python.exe"
 & $py -c @"
 from pathlib import Path
@@ -74,6 +82,8 @@ Write-Host "    niyan doctor"
 Write-Host "    niyan up"
 Write-Host "    niyan model pull"
 Write-Host "    niyan embeddings pull"
+Write-Host ""
+Write-Host "  Admin UI login: run  niyan secrets show"
 Write-Host ""
 Write-Host "  Uninstall:            .\uninstall.ps1"
 Write-Host "  Repo-local fallback:  .\niyan.cmd <command>"

@@ -152,7 +152,7 @@ cmd_up() {
   run_compose up -d --remove-orphans
   echo
   echo "Stack starting."
-  echo "  Admin UI:  http://127.0.0.1:3080  (default admin / niyan)"
+  echo "  Admin UI:  http://127.0.0.1:3080  (admin / NIYAN_ADMIN_PASSWORD in $STACK/.env)"
   echo "  Gateway:   http://127.0.0.1:4000"
   echo "  API docs:  http://127.0.0.1:8100/docs"
   echo "  Langfuse:  http://127.0.0.1:3100"

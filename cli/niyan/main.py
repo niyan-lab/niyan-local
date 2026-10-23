@@ -20,7 +20,8 @@ from niyan.config import (
     save_config,
 )
 from niyan.doctor import detect_profile, run_doctor
-from niyan.local_compose import find_repo_root, recreate_litellm, stack_down, stack_logs, stack_up
+from niyan.local_compose import InsecureSecretsError, find_repo_root, recreate_litellm, stack_down, stack_logs, stack_up
+from niyan.secrets_init import ensure_secrets
 from niyan.shell_init import detect_shell, init_shell
 from niyan.uninstall import run_uninstall
 
@@ -37,6 +38,7 @@ gateway_app = typer.Typer(help="Gateway / API key helpers")
 config_app = typer.Typer(help="Show or mutate niyan.yaml")
 shell_app = typer.Typer(help="Shell integration (like `conda init`)")
 provider_app = typer.Typer(help="Configure OpenAI / Gemini / Anthropic API keys")
+secrets_app = typer.Typer(help="Generate or show per-install secrets (.env / niyan.yaml)")
 
 app.add_typer(model_app, name="model")
 app.add_typer(guardrails_app, name="guardrails")
@@ -46,6 +48,7 @@ app.add_typer(gateway_app, name="gateway")
 app.add_typer(config_app, name="config")
 app.add_typer(shell_app, name="shell")
 app.add_typer(provider_app, name="provider")
+app.add_typer(secrets_app, name="secrets")
 
 console = Console()
 
@@ -108,6 +111,8 @@ def init(
         if env_example.exists() and not env_dest.exists():
             shutil.copy(env_example, env_dest)
         console.print(f"[green]Wrote {dest}[/green]")
+    if dest.exists():
+        _print_secrets_report(ensure_secrets(repo))
     if shell:
         action, rc = init_shell(repo)
         console.print(f"[green]Shell {action}:[/green] {rc}")
@@ -205,7 +210,11 @@ def up(
         console.print(
             f"[dim]{profile.value}: using host Ollama at host.docker.internal:11434[/dim]"
         )
-    stack_up(repo, cfg, build=build)
+    try:
+        stack_up(repo, cfg, build=build)
+    except InsecureSecretsError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
     console.print("[green]Stack starting.[/green]")
     console.print(f"  Proxy (OpenAI):  http://127.0.0.1:{cfg.proxy.port}/v1/chat/completions")
     console.print(f"  Proxy Swagger:   http://127.0.0.1:{cfg.proxy.port}/docs")
@@ -613,6 +622,39 @@ def config_show() -> None:
     """Print niyan.yaml."""
     repo = _repo()
     console.print(_config_path(repo).read_text())
+
+
+def _print_secrets_report(report: dict) -> None:
+    if report["generated"]:
+        console.print("[green]Generated secrets:[/green] " + ", ".join(report["generated"]))
+    if report["kept"]:
+        console.print("[dim]Kept existing secrets:[/dim] " + ", ".join(report["kept"]))
+    for w in report["warnings"]:
+        console.print(f"[yellow]warning:[/yellow] {w}")
+
+
+@secrets_app.command("init")
+def secrets_init() -> None:
+    """Generate missing secrets into .env / niyan.yaml (chmod 600). Never overwrites real values."""
+    repo = _repo()
+    if not _config_path(repo).exists():
+        console.print("[yellow]niyan.yaml missing — run `niyan init` first[/yellow]")
+        raise typer.Exit(1)
+    _print_secrets_report(ensure_secrets(repo))
+
+
+@secrets_app.command("show")
+def secrets_show(
+    all_: bool = typer.Option(False, "--all", help="Also print the gateway API key and JWT secret"),
+) -> None:
+    """Print the admin login (from niyan.yaml, the same source the API uses)."""
+    repo = _repo()
+    cfg = _load(repo)
+    console.print(f"Admin UI user:     {cfg.admin_auth.username}")
+    console.print(f"Admin UI password: {cfg.admin_auth.password}")
+    if all_:
+        console.print(f"Gateway API key:   {cfg.proxy.api_keys[0] if cfg.proxy.api_keys else ''}")
+        console.print(f"JWT secret:        {cfg.admin_auth.jwt_secret}")
 
 
 @gateway_app.command("keys")

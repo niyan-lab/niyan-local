@@ -12,7 +12,7 @@ services:
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-niyan}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-niyan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD unset - run ./install.sh or niyan secrets init}
       POSTGRES_DB: ${POSTGRES_DB:-langfuse}
       POSTGRES_VECTOR_DB: ${POSTGRES_VECTOR_DB:-niyan_vectors}
       POSTGRES_CONFIG_DB: ${POSTGRES_CONFIG_DB:-niyan}
@@ -65,7 +65,7 @@ services:
     expose:
       - "4001"
     environment:
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-niyan-local}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY unset - run ./install.sh or niyan secrets init}
       OLLAMA_API_BASE: ${OLLAMA_HOST:-http://ollama:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -102,8 +102,9 @@ services:
       - "${PROXY_PORT:-4000}:4000"
     environment:
       LITELLM_URL: http://litellm:4001
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-niyan-local}
-      NIYAN_API_KEYS: ${LITELLM_MASTER_KEY:-sk-niyan-local}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY unset - run ./install.sh or niyan secrets init}
+      NIYAN_API_KEYS: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY unset - run ./install.sh or niyan secrets init}
+      NIYAN_ALLOW_INSECURE_DEFAULTS: ${NIYAN_ALLOW_INSECURE_DEFAULTS:-0}
       GUARDRAILS_URL: ${GUARDRAILS_URL:-http://guardrails:8088}
       GUARDRAILS_ENABLED: ${GUARDRAILS_ENABLED:-true}
       GUARDRAILS_ON_FAILURE: ${GUARDRAILS_ON_FAILURE:-allow}
@@ -192,11 +193,11 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-niyan}:${POSTGRES_PASSWORD:-niyan}@postgres:5432/${POSTGRES_DB:-langfuse}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-niyan}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD unset - run ./install.sh or niyan secrets init}@postgres:5432/${POSTGRES_DB:-langfuse}
       NEXTAUTH_URL: http://localhost:${LANGFUSE_PORT:-3100}
-      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-niyan-langfuse-nextauth-secret-change-me}
-      SALT: ${LANGFUSE_SALT:-niyan-langfuse-salt-change-me}
-      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?run ./install.sh or niyan secrets init}
+      SALT: ${LANGFUSE_SALT:?run ./install.sh or niyan secrets init}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?run ./install.sh or niyan secrets init}
       TELEMETRY_ENABLED: "false"
     profiles: ["obs"]
 
@@ -209,16 +210,17 @@ services:
     environment:
       NIYAN_ROOT: /niyan
       NIYAN_CONFIG_PATH: /niyan/niyan.yaml
-      NIYAN_CONFIG_DSN: postgresql://${POSTGRES_USER:-niyan}:${POSTGRES_PASSWORD:-niyan}@postgres:5432/${POSTGRES_CONFIG_DB:-niyan}
+      NIYAN_CONFIG_DSN: postgresql://${POSTGRES_USER:-niyan}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD unset - run ./install.sh or niyan secrets init}@postgres:5432/${POSTGRES_CONFIG_DB:-niyan}
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       NIYAN_ADMIN_USERNAME: ${NIYAN_ADMIN_USERNAME:-admin}
-      NIYAN_ADMIN_PASSWORD: ${NIYAN_ADMIN_PASSWORD:-niyan}
-      NIYAN_JWT_SECRET: ${NIYAN_JWT_SECRET:-change-me-niyan-dev-secret}
+      NIYAN_ADMIN_PASSWORD: ${NIYAN_ADMIN_PASSWORD:?run ./install.sh or niyan secrets init}
+      NIYAN_ALLOW_INSECURE_DEFAULTS: ${NIYAN_ALLOW_INSECURE_DEFAULTS:-0}
+      NIYAN_JWT_SECRET: ${NIYAN_JWT_SECRET:?run ./install.sh or niyan secrets init}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
       LITELLM_URL: http://litellm:4001
       GATEWAY_URL: http://gateway:4000
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-niyan-local}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY unset - run ./install.sh or niyan secrets init}
       LANGFUSE_URL: http://langfuse-web:3000
       GUARDRAILS_PROVIDER: ${GUARDRAILS_PROVIDER:-llm_guard}
       GUARD_LLM_URL: http://guardrails:8088
@@ -226,7 +228,7 @@ services:
       VECTOR_ENABLED: ${VECTOR_ENABLED:-false}
       VECTOR_PROVIDER: ${VECTOR_PROVIDER:-qdrant}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
-      PGVECTOR_DSN: ${PGVECTOR_DSN:-postgresql://niyan:niyan@postgres:5432/niyan_vectors}
+      PGVECTOR_DSN: ${PGVECTOR_DSN:-postgresql://${POSTGRES_USER:-niyan}:${POSTGRES_PASSWORD}@postgres:5432/niyan_vectors}
       EMBEDDINGS_ENABLED: ${EMBEDDINGS_ENABLED:-true}
       EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-nomic-embed-text}
     volumes:

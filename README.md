@@ -43,7 +43,20 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 # new PowerShell, or: . $PROFILE
 ```
 
-`install.sh` / `install.ps1` create `.venv`, install the `niyan` CLI, seed `niyan.yaml` / `.env`, and add a marked block to your shell profile so `niyan` is on PATH.
+`install.sh` / `install.ps1` create `.venv`, install the `niyan` CLI, seed `niyan.yaml` / `.env` (chmod 600) with **per-install random secrets**, and add a marked block to your shell profile so `niyan` is on PATH.
+
+## Secrets
+
+There are no shared default credentials. On first run `install.sh` / `install.ps1` (via `niyan secrets init`) generate:
+
+- `niyan.yaml`: `admin_auth.password`, `admin_auth.jwt_secret`, `proxy.api_keys` (gateway / LiteLLM master key). The CLI login and the control API both read these.
+- `.env`: `POSTGRES_PASSWORD`, `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY`.
+
+Re-running the installer keeps existing values (rotating the Postgres/Langfuse ones would orphan data). The admin password is printed once at the end of the first install; later use `niyan secrets show` (`--all` adds the API key and JWT secret). `niyan up`, the gateway and the control API refuse to start with empty or old default secrets unless `NIYAN_ALLOW_INSECURE_DEFAULTS=1` is set (throwaway dev only). To rotate everything: `./uninstall.sh --volumes && ./install.sh`.
+
+```bash
+export NIYAN_API_KEY="$(niyan gateway keys | head -1)"
+```
 
 ## Start
 
@@ -57,10 +70,10 @@ Repo-local fallback (no shell init): `./niyan.sh …` or `.\niyan.cmd …`
 
 | | |
 |---|---|
-| Admin UI | http://127.0.0.1:3080 (`admin` / `niyan`) |
+| Admin UI | http://127.0.0.1:3080 (`admin` / password from `niyan secrets show`) |
 | Gateway (OpenAI API) | http://127.0.0.1:4000 — Swagger at `/docs` |
 | Control API | http://127.0.0.1:8100 |
-| Default API key | `sk-niyan-local` |
+| Gateway API key | generated per install — `niyan gateway keys` |
 
 Pull local models (Mac/Windows: host Ollama; Linux: Compose):
 

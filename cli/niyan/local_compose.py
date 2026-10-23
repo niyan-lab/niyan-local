@@ -116,7 +116,7 @@ def vector_url(config: NiyanConfig) -> str:
     if config.vector.provider == VectorProvider.qdrant:
         return "http://qdrant:6333"
     db = config.vector.pgvector.database or "niyan_vectors"
-    return f"postgresql://niyan:niyan@postgres:5432/{db}"
+    return f"postgresql://niyan:<POSTGRES_PASSWORD>@postgres:5432/{db}"
 
 
 def resolve_langfuse_host(host: str, profile: Profile) -> str:
@@ -163,7 +163,7 @@ def build_env(repo_root: Path, profile: Profile, config: NiyanConfig) -> dict:
     # Docker Desktop on Windows accepts native paths; prefer resolved absolute path.
     env["NIYAN_ROOT"] = str(repo_root.resolve())
     env["COMPOSE_PROJECT_NAME"] = "niyan"
-    env["LITELLM_MASTER_KEY"] = config.proxy.api_keys[0] if config.proxy.api_keys else "sk-niyan-local"
+    env["LITELLM_MASTER_KEY"] = config.proxy.api_keys[0] if config.proxy.api_keys else ""
     env["GUARDRAILS_PROVIDER"] = config.guardrails.provider.value
     env["GUARDRAILS_URL"] = guardrails_url(config)
     env["GUARDRAILS_ENABLED"] = "true" if config.guardrails.enabled else "false"
@@ -223,7 +223,7 @@ def build_env(repo_root: Path, profile: Profile, config: NiyanConfig) -> dict:
             env.setdefault(key, v.strip())
 
     pg_user = env.get("POSTGRES_USER", "niyan")
-    pg_pass = env.get("POSTGRES_PASSWORD", "niyan")
+    pg_pass = env.get("POSTGRES_PASSWORD", "")
     vector_db = config.vector.pgvector.database or "niyan_vectors"
     env["PGVECTOR_DSN"] = f"postgresql://{pg_user}:{pg_pass}@postgres:5432/{vector_db}"
     return env
@@ -248,8 +248,28 @@ def run_compose(
     return subprocess.run(cmd, cwd=str(repo_root), env=env, check=check)
 
 
+class InsecureSecretsError(RuntimeError):
+    pass
+
+
+def assert_secure_env(env: dict) -> None:
+    """Refuse to start with empty / shipped-default secrets unless NIYAN_ALLOW_INSECURE_DEFAULTS=1."""
+    from niyan.secrets_init import check_secrets
+
+    if env.get("NIYAN_ALLOW_INSECURE_DEFAULTS", "").lower() in {"1", "true", "yes"}:
+        return
+    bad = check_secrets(env)
+    if bad:
+        raise InsecureSecretsError(
+            "Refusing to start: empty or default secrets: " + ", ".join(bad)
+            + ". Run `niyan secrets init` (or ./install.sh). For throwaway dev only, set "
+            "NIYAN_ALLOW_INSECURE_DEFAULTS=1."
+        )
+
+
 def stack_up(repo_root: Path, config: NiyanConfig, *, build: bool = False) -> None:
     ensure_litellm_config(repo_root, config)
+    assert_secure_env(build_env(repo_root, detect_profile(config.profile), config))
     args = ["up", "-d", "--remove-orphans"]
     if build:
         args.insert(2, "--build")

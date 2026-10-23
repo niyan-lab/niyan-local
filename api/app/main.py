@@ -28,6 +28,7 @@ from app.routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings.assert_secure()
     container = build_container()
     set_container(container)
     app.state.container = container

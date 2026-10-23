@@ -23,8 +23,9 @@ class Settings(BaseSettings):
     redis_host: str = ""
     redis_port: int = 6379
     niyan_admin_username: str = "admin"
-    niyan_admin_password: str = "niyan"
-    niyan_jwt_secret: str = "change-me-niyan-dev-secret"
+    niyan_admin_password: str = ""
+    niyan_jwt_secret: str = ""
+    niyan_allow_insecure_defaults: bool = False
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 12
     niyan_cors_origins: str = ""
@@ -32,7 +33,7 @@ class Settings(BaseSettings):
     ollama_host: str = "http://ollama:11434"
     litellm_url: str = "http://litellm:4001"
     gateway_url: str = "http://gateway:4000"
-    litellm_master_key: str = "sk-niyan-local"
+    litellm_master_key: str = ""
     langfuse_url: str = "http://langfuse-web:3000"
     langfuse_ui_url: str = "http://localhost:3100"
     guardrails_provider: str = "llm_guard"
@@ -42,9 +43,32 @@ class Settings(BaseSettings):
     vector_enabled: bool = False
     vector_provider: str = "qdrant"
     qdrant_url: str = "http://qdrant:6333"
-    pgvector_dsn: str = "postgresql://niyan:niyan@postgres:5432/niyan_vectors"
+    pgvector_dsn: str = ""
     embeddings_enabled: bool = True
     embeddings_model: str = "nomic-embed-text"
+
+    def insecure_secrets(self) -> list[str]:
+        """Secret settings that are empty or shipped defaults."""
+        bad_values = {"", "niyan", "sk-niyan-local", "change-me-niyan-dev-secret"}
+
+        def bad(v: str) -> bool:
+            v = (v or "").strip()
+            return v in bad_values or "change-me" in v.lower()
+
+        out = []
+        if bad(self.niyan_admin_password):
+            out.append("NIYAN_ADMIN_PASSWORD")
+        if bad(self.niyan_jwt_secret):
+            out.append("NIYAN_JWT_SECRET")
+        return out
+
+    def assert_secure(self) -> None:
+        bad = self.insecure_secrets()
+        if bad and not self.niyan_allow_insecure_defaults:
+            raise RuntimeError(
+                "Refusing to start: empty or default secrets: " + ", ".join(bad)
+                + ". Run ./install.sh (niyan secrets init) or set NIYAN_ALLOW_INSECURE_DEFAULTS=1 for dev only."
+            )
 
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.niyan_cors_origins.split(",") if o.strip()]

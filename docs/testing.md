@@ -9,7 +9,7 @@ Open Swagger UI and send requests from the browser:
 Also: http://127.0.0.1:4000/redoc
 
 1. Click **Authorize**
-2. Enter API key: `sk-niyan-local` (no `Bearer` prefix — Swagger adds it)
+2. Enter API key: your gateway key (`niyan gateway keys`) (no `Bearer` prefix — Swagger adds it)
 3. Expand `POST /v1/chat/completions` → **Try it out**
 4. Use body:
 
@@ -51,11 +51,11 @@ curl -s http://127.0.0.1:4000/health
 
 # List models
 curl -s http://127.0.0.1:4000/v1/models \
-  -H "Authorization: Bearer sk-niyan-local"
+  -H "Authorization: Bearer $NIYAN_API_KEY"
 
 # Chat
 curl -s http://127.0.0.1:4000/v1/chat/completions \
-  -H "Authorization: Bearer sk-niyan-local" \
+  -H "Authorization: Bearer $NIYAN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "llama3.2:3b",
@@ -64,7 +64,7 @@ curl -s http://127.0.0.1:4000/v1/chat/completions \
 
 # Embeddings (requires: niyan embeddings pull)
 curl -s http://127.0.0.1:4000/v1/embeddings \
-  -H "Authorization: Bearer sk-niyan-local" \
+  -H "Authorization: Bearer $NIYAN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "nomic-embed-text",
@@ -77,7 +77,7 @@ curl -s http://127.0.0.1:4000/v1/embeddings \
 ```bash
 # Expect PII redaction metadata / redacted text
 curl -s http://127.0.0.1:4000/v1/chat/completions \
-  -H "Authorization: Bearer sk-niyan-local" \
+  -H "Authorization: Bearer $NIYAN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "llama3.2:3b",
@@ -86,7 +86,7 @@ curl -s http://127.0.0.1:4000/v1/chat/completions \
 
 # Expect block on prompt-injection style input
 curl -s http://127.0.0.1:4000/v1/chat/completions \
-  -H "Authorization: Bearer sk-niyan-local" \
+  -H "Authorization: Bearer $NIYAN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "llama3.2:3b",

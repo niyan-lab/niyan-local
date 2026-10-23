@@ -64,7 +64,7 @@ export default function LoadTesting() {
   const [domain, setDomain] = useState("finance");
   const [prompt, setPrompt] = useState("Say hi in five words.");
   const [embedInput, setEmbedInput] = useState("niyan load test embedding input");
-  const [auth, setAuth] = useState("sk-niyan-local");
+  const [auth, setAuth] = useState("");
   const [users, setUsers] = useState(5);
   const [spawn, setSpawn] = useState(1);
   const [duration, setDuration] = useState(30);

@@ -47,7 +47,7 @@ function CopyBlock({ snippet }: { snippet: Snippet }) {
 
 export default function Gateway() {
   const [port, setPort] = useState(4000);
-  const [keys, setKeys] = useState("sk-niyan-local");
+  const [keys, setKeys] = useState("");
   const [onPrem, setOnPrem] = useState<OnPremModel[]>([]);
   const [providers, setProviders] = useState<ProviderSection[]>([]);
   const [domain, setDomain] = useState("finance");
@@ -78,7 +78,7 @@ export default function Gateway() {
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
-  const apiKey = keys.split("\n").map((k) => k.trim()).filter(Boolean)[0] || "sk-niyan-local";
+  const apiKey = keys.split("\n").map((k) => k.trim()).filter(Boolean)[0] || "<your-api-key>";
   // Behind an ingress the gateway is reached at <ingress host>/v1, not on a
   // published port; GATEWAY_BASE_URL carries that. The port field below still
   // configures the container's listen port, which is not what callers dial.
