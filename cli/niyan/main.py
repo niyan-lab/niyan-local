@@ -75,8 +75,11 @@ def _api(repo: Path, login: bool = False) -> NiyanApiClient:
     if login and client.healthy():
         try:
             client.login(cfg.admin_auth.username, cfg.admin_auth.password)
-        except Exception:
-            pass
+        except Exception as exc:
+            console.print(
+                f"[yellow]niyan-api login failed ({exc.__class__.__name__}); the API and niyan.yaml "
+                "admin_auth may be out of sync — run `niyan up` to re-apply.[/yellow]"
+            )
     return client
 
 
