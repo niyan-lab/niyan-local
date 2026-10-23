@@ -108,7 +108,6 @@ services:
       LITELLM_URL: http://litellm:4001
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY unset - run ./install.sh or niyan secrets init}
       NIYAN_API_KEYS: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY unset - run ./install.sh or niyan secrets init}
-      NIYAN_ALLOW_INSECURE_DEFAULTS: ${NIYAN_ALLOW_INSECURE_DEFAULTS:-0}
       GUARDRAILS_URL: ${GUARDRAILS_URL:-http://guardrails:8088}
       GUARDRAILS_ENABLED: ${GUARDRAILS_ENABLED:-true}
       GUARDRAILS_ON_FAILURE: ${GUARDRAILS_ON_FAILURE:-allow}
@@ -214,7 +213,6 @@ services:
       REDIS_PORT: "6379"
       NIYAN_ADMIN_USERNAME: ${NIYAN_ADMIN_USERNAME:-admin}
       NIYAN_ADMIN_PASSWORD: ${NIYAN_ADMIN_PASSWORD:?run ./install.sh or niyan secrets init}
-      NIYAN_ALLOW_INSECURE_DEFAULTS: ${NIYAN_ALLOW_INSECURE_DEFAULTS:-0}
       NIYAN_JWT_SECRET: ${NIYAN_JWT_SECRET:?run ./install.sh or niyan secrets init}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
       LITELLM_URL: http://litellm:4001

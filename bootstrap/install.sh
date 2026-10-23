@@ -89,6 +89,10 @@ else
   die "No bundle source. Set NIYAN_BUNDLE_URL=… or run from a checkout that contains bootstrap/"
 fi
 
+# Secret-bearing files are created owner-only; caller's umask restored below.
+OLD_UMASK="$(umask)"
+umask 077
+
 # default niyan.yaml from example if pack omitted the gitignored name
 if [[ ! -f "$STACK/niyan.yaml" && -f "$STACK/niyan.example.yaml" ]]; then
   cp "$STACK/niyan.example.yaml" "$STACK/niyan.yaml"
@@ -121,29 +125,131 @@ upsert_env NIYAN_IMAGE_REGISTRY "$IMAGE_REGISTRY" "$STACK/.env"
 upsert_env NIYAN_IMAGE_TAG "$IMAGE_TAG" "$STACK/.env"
 
 # Per-install secrets (bash 3.2 + BSD/LibreSSL openssl compatible). Only fills
-# empty or shipped-default values; never regenerates over existing ones.
+# empty or shipped-default values; never regenerates over real ones. Upgrades
+# of old default installs are migrated in place (see README "Upgrading").
 require_cmd openssl
 is_insecure() {
   case "$1" in
-    ""|niyan|sk-niyan-local|*change-me*|0000000000000000000000000000000000000000000000000000000000000000) return 0 ;;
+    ""|niyan|sk-niyan-local|x|'***'|'********'|*change-me*|*changeme*|__*__|'<'*'>'|0000000000000000000000000000000000000000000000000000000000000000) return 0 ;;
   esac
   return 1
 }
+env_get() { grep -E "^$1=" "$STACK/.env" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true; }
+legacy_marker() {
+  case "$1" in
+    LANGFUSE_SALT) echo NIYAN_LEGACY_LANGFUSE_SALT ;;
+    LANGFUSE_ENCRYPTION_KEY) echo NIYAN_LEGACY_LANGFUSE_ENCRYPTION_KEY ;;
+    *) echo "" ;;
+  esac
+}
+old_default() {
+  case "$1" in
+    POSTGRES_PASSWORD) echo niyan ;;
+    LANGFUSE_SALT) echo niyan-langfuse-salt-change-me ;;
+    LANGFUSE_ENCRYPTION_KEY) echo 0000000000000000000000000000000000000000000000000000000000000000 ;;
+  esac
+}
+needs_work() {  # $1 = key
+  local cur m
+  cur="$(env_get "$1")"
+  m="$(legacy_marker "$1")"
+  if [[ -n "$m" && "$(env_get "$m")" == "1" && -n "$cur" ]]; then return 1; fi
+  is_insecure "$cur"
+}
+
+DATA_KEYS=()
+for key in POSTGRES_PASSWORD LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY; do
+  if needs_work "$key"; then DATA_KEYS+=("$key"); fi
+done
+PG_VOLUME=0
+if [[ ${#DATA_KEYS[@]} -gt 0 ]]; then
+  # Fail closed: without Docker we cannot tell whether data exists.
+  docker info >/dev/null 2>&1 || die "Docker is not reachable, so it is unknown whether Niyan's Postgres volume exists. Refusing to generate data-bound secrets (${DATA_KEYS[*]}). Start Docker and re-run. Nothing was changed."
+  if docker volume inspect niyan_niyan_pg >/dev/null 2>&1; then PG_VOLUME=1; fi
+fi
+
+pg_compose() {
+  (
+    set -a
+    # shellcheck disable=SC1091
+    . "$STACK/.env"
+    set +a
+    for v in POSTGRES_PASSWORD LANGFUSE_NEXTAUTH_SECRET LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY \
+      LITELLM_MASTER_KEY NIYAN_ADMIN_PASSWORD NIYAN_JWT_SECRET; do
+      if [[ -z "${!v:-}" ]]; then export "$v=__niyan_unused__"; fi
+    done
+    export NIYAN_ROOT="$STACK" COMPOSE_PROJECT_NAME=niyan
+    cd "$STACK" && docker compose --project-name niyan -f "$STACK/docker-compose.yml" "$@"
+  )
+}
+PG_USER="$(env_get POSTGRES_USER)"; PG_USER="${PG_USER:-niyan}"
+pg_sql() {  # $1 db, SQL on stdin; local socket inside the container (trust)
+  pg_compose exec -T postgres psql -v ON_ERROR_STOP=1 -qtA -U "$PG_USER" -d "$1"
+}
+langfuse_rows() {  # $@ tables -> prints count (to_regclass-guarded)
+  local parts="" t
+  for t in "$@"; do
+    [[ -n "$parts" ]] && parts="$parts + "
+    parts="${parts}(case when to_regclass('public.$t') is null then 0 else (xpath('/row/c/text()', query_to_xml('select count(*) as c from public.$t', false, true, '')))[1]::text::int end)"
+  done
+  local db; db="$(env_get POSTGRES_DB)"
+  echo "select $parts;" | pg_sql "${db:-langfuse}" 2>/dev/null | tail -1
+}
+
+if [[ "$PG_VOLUME" == "1" ]]; then
+  echo "==> Existing Niyan Postgres volume found: migrating default secrets in place (data kept)"
+  pg_compose up -d --no-deps postgres >/dev/null
+  ready=0
+  for _ in $(seq 1 60); do
+    if echo "select 1;" | pg_sql postgres >/dev/null 2>&1; then ready=1; break; fi
+    sleep 2
+  done
+  [[ "$ready" == "1" ]] || die "postgres did not become ready for migration (nothing rotated)"
+  for key in "${DATA_KEYS[@]}"; do
+    case "$key" in
+      POSTGRES_PASSWORD)
+        newpw="$(openssl rand -hex 24)"
+        printf 'ALTER USER "%s" WITH PASSWORD '"'"'%s'"'"';\n' "$PG_USER" "$newpw" | pg_sql postgres >/dev/null \
+          || die "ALTER USER failed; .env unchanged"
+        printf '%s\n' "$newpw" | pg_compose exec -T postgres sh -c \
+          'read -r P; PGPASSWORD="$P" psql -h 127.0.0.1 -U "$0" -d postgres -qtAc "select 1"' "$PG_USER" >/dev/null \
+          || die "new Postgres password did not verify over TCP"
+        upsert_env POSTGRES_PASSWORD "$newpw" "$STACK/.env"
+        echo "    rotated POSTGRES_PASSWORD (ALTER USER)"
+        ;;
+      LANGFUSE_SALT|LANGFUSE_ENCRYPTION_KEY)
+        if [[ "$key" == LANGFUSE_SALT ]]; then n="$(langfuse_rows api_keys)"; else n="$(langfuse_rows llm_api_keys blob_storage_integrations posthog_integrations)"; fi
+        if [[ "$n" == "0" ]]; then
+          upsert_env "$key" "$(openssl rand -hex 32)" "$STACK/.env"
+          echo "    rotated $key (no dependent Langfuse rows)"
+        else
+          cur="$(env_get "$key")"; [[ -n "$cur" ]] || cur="$(old_default "$key")"
+          upsert_env "$key" "$cur" "$STACK/.env"
+          upsert_env "$(legacy_marker "$key")" 1 "$STACK/.env"
+          echo "    WARNING: kept old default $key: existing Langfuse data depends on it (${n:-unknown} rows)." >&2
+          echo "             Anyone with repo access knows it. To rotate: export Langfuse data, then" >&2
+          echo "             niyan uninstall --volumes and reinstall." >&2
+        fi
+        ;;
+    esac
+  done
+fi
+
 GENERATED_ADMIN=0
 for key in NIYAN_ADMIN_PASSWORD NIYAN_JWT_SECRET LITELLM_MASTER_KEY POSTGRES_PASSWORD \
            LANGFUSE_NEXTAUTH_SECRET LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY; do
-  cur="$(grep -E "^${key}=" "$STACK/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
-  if is_insecure "$cur"; then
-    case "$key" in
-      LITELLM_MASTER_KEY) val="sk-niyan-$(openssl rand -hex 24)" ;;
-      NIYAN_ADMIN_PASSWORD) val="$(openssl rand -hex 12)"; GENERATED_ADMIN=1 ;;
-      *) val="$(openssl rand -hex 32)" ;;
-    esac
-    upsert_env "$key" "$val" "$STACK/.env"
-  fi
+  needs_work "$key" || continue
+  case "$key" in
+    LITELLM_MASTER_KEY) val="sk-niyan-$(openssl rand -hex 24)" ;;
+    # 24 chars, same length as the source CLI's generated admin password
+    NIYAN_ADMIN_PASSWORD) val="$(openssl rand -hex 12)"; GENERATED_ADMIN=1 ;;
+    *) val="$(openssl rand -hex 32)" ;;
+  esac
+  upsert_env "$key" "$val" "$STACK/.env"
 done
 chmod 600 "$STACK/.env"
-[ -f "$STACK/niyan.yaml" ] && chmod 600 "$STACK/niyan.yaml"
+if [[ -f "$STACK/niyan.yaml" ]]; then chmod 600 "$STACK/niyan.yaml"; fi
+umask "$OLD_UMASK"
 
 # PATH: prefer ~/.niyan/bin; also try ~/.local/bin symlink
 chmod +x "$BIN_DIR/niyan"
@@ -213,7 +319,7 @@ echo "    niyan up"
 echo
 echo "  Admin UI: http://127.0.0.1:3080"
 if [ "$GENERATED_ADMIN" = "1" ]; then
-  echo "            login: admin / $(grep -E '^NIYAN_ADMIN_PASSWORD=' "$STACK/.env" | cut -d= -f2-)  (shown once; stored in $STACK/.env)"
+  echo "            login: admin / $(grep -E '^NIYAN_ADMIN_PASSWORD=' "$STACK/.env" | cut -d= -f2-)  (stored in $STACK/.env; now in your scrollback — clear it on shared screens)"
 else
   echo "            login: admin / see NIYAN_ADMIN_PASSWORD in $STACK/.env"
 fi

@@ -75,6 +75,11 @@ run_compose() {
   set -a
   [ -f "$STACK/.env" ] && . "$STACK/.env"
   set +a
+  for v in POSTGRES_PASSWORD LANGFUSE_NEXTAUTH_SECRET LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY \
+    LITELLM_MASTER_KEY NIYAN_ADMIN_PASSWORD NIYAN_JWT_SECRET; do
+    # interpolation-only dummy; `up` is guarded by check_secrets first
+    if [ -z "$(eval echo "\${$v:-}")" ]; then export "$v=__niyan_unused__"; fi
+  done
   export NIYAN_ROOT="$STACK"
   export COMPOSE_PROJECT_NAME=niyan
   # Older GHCR tags may be amd64-only; allow pull/run on Apple Silicon via emulation
@@ -135,6 +140,34 @@ cmd_doctor() {
   [ "$ok" -eq 1 ] || exit 1
 }
 
+# Refuse to start with empty / shipped-default secrets (same deny list as the
+# images; they refuse too). Re-run the installer to generate/migrate them.
+check_secrets() {
+  need_stack
+  local bad="" key val marker
+  for key in NIYAN_ADMIN_PASSWORD NIYAN_JWT_SECRET LITELLM_MASTER_KEY POSTGRES_PASSWORD \
+             LANGFUSE_NEXTAUTH_SECRET LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY; do
+    val="$(grep -E "^${key}=" "$STACK/.env" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
+    case "$key" in
+      LANGFUSE_SALT) marker=NIYAN_LEGACY_LANGFUSE_SALT ;;
+      LANGFUSE_ENCRYPTION_KEY) marker=NIYAN_LEGACY_LANGFUSE_ENCRYPTION_KEY ;;
+      *) marker="" ;;
+    esac
+    if [ -n "$marker" ] && [ -n "$val" ] && grep -qE "^${marker}=1$" "$STACK/.env" 2>/dev/null; then
+      continue
+    fi
+    case "$val" in
+      ""|niyan|sk-niyan-local|x|'***'|'********'|*change-me*|*changeme*|__*__|'<'*'>'|0000000000000000000000000000000000000000000000000000000000000000)
+        bad="$bad $key" ;;
+    esac
+  done
+  if [ -n "$bad" ]; then
+    echo "Refusing to start: empty or default secrets in $STACK/.env:$bad" >&2
+    echo "Re-run the Niyan installer to generate them (existing data is migrated in place)." >&2
+    return 1
+  fi
+}
+
 cmd_up() {
   pull=0
   for arg in "$@"; do
@@ -146,6 +179,7 @@ cmd_up() {
         ;;
     esac
   done
+  check_secrets || return 1
   if [ "$pull" -eq 1 ]; then
     run_compose pull
   fi
@@ -196,9 +230,12 @@ cmd_uninstall() {
     esac
   done
   down_args=(down --remove-orphans)
-  [ "$volumes" -eq 1 ] && down_args+=(--volumes)
+  if [ "$volumes" -eq 1 ]; then down_args+=(--volumes); fi
   if [ -f "$STACK/docker-compose.yml" ]; then
-    run_compose "${down_args[@]}" || true
+    if ! run_compose "${down_args[@]}"; then
+      echo "error: docker compose down failed (is Docker running?). Not deleting $NIYAN_HOME so you can retry." >&2
+      return 1
+    fi
   fi
   strip_shell_block
   local_link="${NIYAN_LOCAL_BIN:-$HOME/.local/bin}/niyan"
