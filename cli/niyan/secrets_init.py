@@ -221,6 +221,20 @@ def _run(cmd: List[str], **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=kw.pop("timeout", 60), **kw)
 
 
+def _run_safe(cmd: List[str], **kw) -> subprocess.CompletedProcess:
+    """Like _run, but a timeout/OSError becomes a failed result (rc 124) instead of raising."""
+    try:
+        return _run(cmd, **kw)
+    except subprocess.TimeoutExpired as e:
+        return subprocess.CompletedProcess(cmd, 124, "", f"timed out after {e.timeout}s")
+    except OSError as e:
+        return subprocess.CompletedProcess(cmd, 127, "", str(e))
+
+
+COUNT_RETRIES = 3
+COUNT_BACKOFF = (1.0, 2.0, 4.0)
+
+
 def docker_up() -> bool:
     try:
         return _run(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=20).returncode == 0
@@ -254,7 +268,7 @@ class PgMigrator:
         self.base = ["docker", "compose", "--project-name", "niyan", "-f", str(repo_root / "deploy" / "docker-compose.yml")]
 
     def start(self) -> None:
-        r = _run(self.base + ["up", "-d", "--no-deps", "postgres"], cwd=str(self.repo), env=self.env, timeout=300)
+        r = _run_safe(self.base + ["up", "-d", "--no-deps", "postgres"], cwd=str(self.repo), env=self.env, timeout=300)
         if r.returncode != 0:
             raise SecretsInitError("could not start postgres for migration: " + (r.stderr or r.stdout)[-400:])
         import time
@@ -269,7 +283,7 @@ class PgMigrator:
         raise SecretsInitError("postgres did not become ready for migration")
 
     def exec(self, args: List[str], stdin: Optional[str] = None, check: bool = True) -> subprocess.CompletedProcess:
-        r = _run(self.base + ["exec", "-T", "postgres", *args], cwd=str(self.repo), env=self.env, input=stdin, timeout=120)
+        r = _run_safe(self.base + ["exec", "-T", "postgres", *args], cwd=str(self.repo), env=self.env, input=stdin, timeout=120)
         if check and r.returncode != 0:
             raise SecretsInitError(f"postgres command failed: {(r.stderr or '')[-300:]}")
         return r
@@ -291,7 +305,25 @@ class PgMigrator:
         if r.returncode != 0 or "1" not in r.stdout:
             raise SecretsInitError("ALTER USER ran but TCP login with the new password failed")
 
+    def database_exists(self, db: str) -> Optional[bool]:
+        """True/False from pg_database; None when the query itself failed (unknown)."""
+        if not re.fullmatch(r"[A-Za-z0-9_]+", db):
+            return None
+        r = self.psql("postgres", f"select count(*) from pg_database where datname = '{db}';", check=False)
+        if r.returncode != 0:
+            return None
+        out = r.stdout.strip().splitlines()
+        if not out or out[-1].strip() not in ("0", "1"):
+            return None
+        return out[-1].strip() == "1"
+
     def count_rows(self, db: str, tables: List[str]) -> Optional[int]:
+        """Dependent row count; 0 only if the DB is confirmed missing; None = unknown."""
+        exists = self.database_exists(db)
+        if exists is None:
+            return None
+        if exists is False:
+            return 0
         parts = [
             f"(case when to_regclass('public.{t}') is null then 0 else "
             f"(xpath('/row/c/text()', query_to_xml('select count(*) as c from public.{t}', false, true, '')))[1]::text::int end)"
@@ -299,13 +331,36 @@ class PgMigrator:
         ]
         r = self.psql(db, "select " + " + ".join(parts) + ";", check=False)
         if r.returncode != 0:
-            if "does not exist" in (r.stderr or ""):
-                return 0  # database never created
+            # Exact match only: 'role "x" does not exist' etc. must stay unknown.
+            if missing_database(r.stderr or "", db):
+                return 0
+            self.last_error = (r.stderr or r.stdout or "")[-300:]
             return None
-        try:
-            return int(r.stdout.strip().splitlines()[-1])
-        except Exception:
+        out = r.stdout.strip().splitlines()
+        if not out or not re.fullmatch(r"[0-9]+", out[-1].strip()):
+            self.last_error = "unexpected output"
             return None
+        return int(out[-1].strip())
+
+    last_error = ""
+
+
+def missing_database(stderr: str, db: str) -> bool:
+    """True only for Postgres 'database "<db>" does not exist' (SQLSTATE 3D000)."""
+    return bool(re.search(r'(?:^|\s|:)(?:3D000:\s*)?database "' + re.escape(db) + r'" does not exist', stderr))
+
+
+def count_with_retry(mig, db: str, tables: List[str], sleep: Callable[[float], None] = None) -> Optional[int]:
+    import time
+
+    sleep = sleep or time.sleep
+    for i in range(COUNT_RETRIES):
+        n = mig.count_rows(db, tables)
+        if n is not None:
+            return n
+        if i < COUNT_RETRIES - 1:
+            sleep(COUNT_BACKOFF[min(i, len(COUNT_BACKOFF) - 1)])
+    return None
 
 
 # ---------------------------------------------------------------- main entry
@@ -331,7 +386,8 @@ def ensure_secrets(
         m = LEGACY_MARKERS.get(key)
         return bool(m and values.get(m) == "1" and values.get(key))
 
-    todo = [k for k in ENV_SECRETS if is_insecure(values.get(k, "")) and not legacy_ok(k)]
+    # Marked legacy keys are re-checked on every run (rotated once no rows depend on them).
+    todo = [k for k in ENV_SECRETS if is_insecure(values.get(k, ""))]
     for k in ENV_SECRETS:
         if k not in todo:
             report["kept"].append(k)
@@ -339,6 +395,13 @@ def ensure_secrets(
     vol: Optional[bool] = False
     if any(k in DATA_BOUND for k in todo):
         vol = volume_probe()
+        if vol is None and all(legacy_ok(k) for k in todo if k in DATA_BOUND):
+            # Only already-confirmed legacy keys pending: keep them, re-check next time.
+            for k in [k for k in todo if k in DATA_BOUND]:
+                todo.remove(k)
+                report["kept"].append(k)
+                report["warnings"].append(f"{k}: legacy value kept; Docker unreachable so it was not re-checked.")
+            vol = False
         if vol is None:
             raise SecretsInitError(
                 "Docker is not reachable, so it is unknown whether Niyan's Postgres volume exists. "
@@ -351,6 +414,20 @@ def ensure_secrets(
     if vol:
         mig = migrator_factory(repo_root, {**values, **{k: values.get(k) or OLD_COMPOSE_DEFAULTS[k] for k in todo}})
         mig.start()
+        # Phase 1 (read-only): count every Langfuse dependency BEFORE changing anything,
+        # so an unknown count aborts with nothing rotated (fully resumable).
+        counts: Dict[str, Optional[int]] = {}
+        for key in todo:
+            if key in LANGFUSE_DEPENDENTS:
+                counts[key] = count_with_retry(mig, values.get("POSTGRES_DB") or "langfuse", LANGFUSE_DEPENDENTS[key])
+        unknown = [k for k, n in counts.items() if n is None]
+        if unknown:
+            raise SecretsInitError(
+                "Could not count Langfuse rows for " + ", ".join(unknown)
+                + f" after {COUNT_RETRIES} attempts ({getattr(mig, 'last_error', '') or 'unknown error'}). "
+                "Nothing was changed: these keys stay as they are and Niyan will refuse to start until "
+                "they are resolved. Check that Postgres is healthy, then re-run ./install.sh."
+            )
     for key in todo:
         gen = ENV_SECRETS[key]
         if not vol or key == "LANGFUSE_NEXTAUTH_SECRET":
@@ -358,35 +435,36 @@ def ensure_secrets(
             report["generated"].append(key)
             continue
         if key == "POSTGRES_PASSWORD":
-            pw = gen()
-            mig.rotate_password(pw)
-            # Persist immediately: the DB now only accepts the new password.
-            lines = _set_env(lines, key, pw)
-            _write_env(env_path, lines)
-            report["rotated"].append(key)
-            continue
-        n = mig.count_rows(values.get("POSTGRES_DB") or "langfuse", LANGFUSE_DEPENDENTS[key])
+            continue  # phase 2, below
+        n = counts[key]
         if n == 0:
             new_env[key] = gen()
             report["rotated"].append(key)
             continue
+        # Confirmed n > 0: keep the old value and mark it (re-checked on each run).
         legacy = values.get(key) or OLD_COMPOSE_DEFAULTS[key]
         new_env[key] = legacy
         new_env[LEGACY_MARKERS[key]] = "1"
         report["kept"].append(key)
         report["warnings"].append(
-            f"{key} is still the old shipped default because existing Langfuse data depends on it "
-            f"({'unknown row count' if n is None else str(n) + ' rows'}); rotating would break it. "
-            "Anyone with repo access knows this value. Marked with "
-            f"{LEGACY_MARKERS[key]}=1. To rotate: export your Langfuse data, then "
-            "./uninstall.sh --volumes && ./install.sh."
+            f"{key} is still the old shipped default because {n} existing Langfuse rows depend on it; "
+            "rotating would break them. Anyone with repo access knows this value. Marked with "
+            f"{LEGACY_MARKERS[key]}=1 and re-checked on every ./install.sh. To rotate now: delete or export "
+            "that Langfuse data, then re-run ./install.sh (or ./uninstall.sh --volumes && ./install.sh)."
         )
+    if vol and "POSTGRES_PASSWORD" in todo:
+        # Phase 2: the only DB write. Persist immediately: the DB now only accepts the new password.
+        pw = ENV_SECRETS["POSTGRES_PASSWORD"]()
+        mig.rotate_password(pw)
+        lines = _set_env(lines, "POSTGRES_PASSWORD", pw)
+        _write_env(env_path, lines)
+        report["rotated"].append("POSTGRES_PASSWORD")
 
     for k, v in new_env.items():
         lines = _set_env(lines, k, v)
     # Legacy markers are meaningless once the value is strong.
     for key, marker in LEGACY_MARKERS.items():
-        if marker in values and marker not in new_env and (key in new_env or not is_insecure(values.get(key, ""))):
+        if marker in values and new_env.get(marker) != "1" and (key in new_env or not is_insecure(values.get(key, ""))):
             lines = _del_env(lines, marker)
     # These now live in niyan.yaml only (single source for CLI + API).
     lines = [

@@ -35,10 +35,14 @@ class FakeMig:
         self.rotated = pw
 
     def count_rows(self, db, tables):
-        return FakeMig.rows
+        r = FakeMig.rows
+        if isinstance(r, list):
+            return r.pop(0)
+        return r
 
 
 def _ens(tmp_path, vol, rows=0):
+    si.COUNT_BACKOFF = (0, 0, 0)
     FakeMig.rows = rows
     FakeMig.instances = []
     return ensure_secrets(tmp_path, volume_probe=lambda: vol, migrator_factory=FakeMig)
@@ -94,9 +98,9 @@ def test_upgrade_keeps_langfuse_keys_with_data(tmp_path):
     assert not is_insecure(env["LANGFUSE_NEXTAUTH_SECRET"])
     assert any("ENCRYPTION_KEY" in w for w in r["warnings"])
     assert "LANGFUSE_ENCRYPTION_KEY" not in check_secrets(env)
-    # Idempotent: second run keeps legacy, no new migration
+    # Re-checked on the next run: still rows -> unchanged, still marked
     r2 = _ens(tmp_path, True, rows=3)
-    assert r2["rotated"] == [] and not FakeMig.instances
+    assert r2["rotated"] == [] and _env(tmp_path) == env
 
 
 def test_docker_down_fails_closed(tmp_path):
@@ -178,3 +182,93 @@ def test_placeholder_env_never_secure():
 def test_policy_copies_in_sync():
     copies = [ROOT / "cli/niyan/secrets_policy.py", ROOT / "api/app/secrets_policy.py", ROOT / "services/gateway/secrets_policy.py"]
     assert len({hashlib.sha256(p.read_bytes()).hexdigest() for p in copies}) == 1
+
+
+# ---- migrator hardening (07 follow-up)
+
+import subprocess
+
+
+class ExecMig(si.PgMigrator):
+    """Real PgMigrator logic with a scripted exec()."""
+
+    def __init__(self, results):
+        self.user = "niyan"
+        self.results = list(results)
+        self.calls = []
+
+    def exec(self, args, stdin=None, check=True):
+        self.calls.append(stdin)
+        r = self.results.pop(0)
+        return r() if callable(r) else r
+
+
+def _cp(rc, out="", err=""):
+    return subprocess.CompletedProcess([], rc, out, err)
+
+
+def test_role_does_not_exist_is_unknown_not_zero():
+    # DB exists, but the count fails with a role error: must NOT be treated as 0.
+    m = ExecMig([_cp(0, "1\n"), _cp(2, "", 'psql: error: FATAL:  role "niyan" does not exist')])
+    assert m.count_rows("langfuse", ["api_keys"]) is None
+    # and when the existence probe itself fails with a role error -> unknown
+    m = ExecMig([_cp(2, "", 'FATAL:  role "niyan" does not exist')])
+    assert m.count_rows("langfuse", ["api_keys"]) is None
+
+
+def test_missing_database_is_zero():
+    assert ExecMig([_cp(0, "0\n")]).count_rows("langfuse", ["api_keys"]) == 0
+    assert si.missing_database('FATAL:  3D000: database "langfuse" does not exist', "langfuse")
+    assert si.missing_database('psql: error: FATAL:  database "langfuse" does not exist', "langfuse")
+    assert not si.missing_database('FATAL:  role "langfuse" does not exist', "langfuse")
+    assert not si.missing_database('ERROR:  relation "database" does not exist', "langfuse")
+
+
+def test_exec_timeout_is_unknown(monkeypatch):
+    def boom(*a, **k):
+        raise subprocess.TimeoutExpired(a[0], 120)
+
+    monkeypatch.setattr(si, "_run", boom)
+    m = si.PgMigrator.__new__(si.PgMigrator)
+    m.user, m.base, m.repo, m.env = "niyan", ["docker"], Path("."), {}
+    r = m.exec(["true"], check=False)
+    assert r.returncode == 124
+    assert m.count_rows("langfuse", ["api_keys"]) is None
+
+
+def test_rowcount_failure_no_pin_no_marker_nothing_rotated(tmp_path):
+    env0 = "POSTGRES_PASSWORD=niyan\nLANGFUSE_SALT=niyan-langfuse-salt-change-me\n"
+    _setup(tmp_path, env=env0)
+    before = ((tmp_path / ".env").read_bytes(), (tmp_path / "niyan.yaml").read_bytes())
+    with pytest.raises(SecretsInitError, match="re-run"):
+        _ens(tmp_path, True, rows=None)
+    assert ((tmp_path / ".env").read_bytes(), (tmp_path / "niyan.yaml").read_bytes()) == before
+    assert FakeMig.instances[0].rotated is None  # pg password not touched either
+    env = _env(tmp_path)
+    assert "NIYAN_LEGACY_LANGFUSE_SALT" not in env
+    assert "LANGFUSE_SALT" in check_secrets(env)  # startup keeps refusing
+    # transient: succeeds on retry
+    r = _ens(tmp_path, True, rows=[None, None, 0, 0])
+    assert "LANGFUSE_SALT" in r["rotated"] and "POSTGRES_PASSWORD" in r["rotated"]
+
+
+def test_marked_key_rechecked_and_rotated_when_safe(tmp_path):
+    _setup(tmp_path, env="POSTGRES_PASSWORD=" + "a" * 48 + "\nLANGFUSE_SALT=niyan-langfuse-salt-change-me\nNIYAN_LEGACY_LANGFUSE_SALT=1\n")
+    r = _ens(tmp_path, True, rows=0)
+    env = _env(tmp_path)
+    assert "LANGFUSE_SALT" in r["rotated"] and not is_insecure(env["LANGFUSE_SALT"])
+    assert "NIYAN_LEGACY_LANGFUSE_SALT" not in env
+
+
+def test_marked_key_unknown_count_keeps_marker(tmp_path):
+    _setup(tmp_path, env="POSTGRES_PASSWORD=" + "a" * 48 + "\nLANGFUSE_SALT=niyan-langfuse-salt-change-me\nNIYAN_LEGACY_LANGFUSE_SALT=1\n")
+    with pytest.raises(SecretsInitError):
+        _ens(tmp_path, True, rows=None)
+    assert _env(tmp_path)["NIYAN_LEGACY_LANGFUSE_SALT"] == "1"
+
+
+def test_marked_key_docker_down_is_kept(tmp_path):
+    _setup(tmp_path, env="POSTGRES_PASSWORD=" + "a" * 48 + "\nLANGFUSE_SALT=niyan-langfuse-salt-change-me\nNIYAN_LEGACY_LANGFUSE_SALT=1\nLANGFUSE_ENCRYPTION_KEY=" + "b" * 64 + "\n")
+    r = _ens(tmp_path, None)
+    assert _env(tmp_path)["LANGFUSE_SALT"] == "niyan-langfuse-salt-change-me"
+    assert any("not re-checked" in w for w in r["warnings"])
