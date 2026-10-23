@@ -109,16 +109,6 @@ def guardrails_url(config: NiyanConfig) -> str:
     return "http://nemo-guardrails:8089"
 
 
-def vector_url(config: NiyanConfig) -> str:
-    """Connection URL for the active vector provider (empty when disabled)."""
-    if not config.vector.enabled:
-        return ""
-    if config.vector.provider == VectorProvider.qdrant:
-        return "http://qdrant:6333"
-    db = config.vector.pgvector.database or "niyan_vectors"
-    return f"postgresql://niyan:<POSTGRES_PASSWORD>@postgres:5432/{db}"
-
-
 def resolve_langfuse_host(host: str, profile: Profile) -> str:
     """Map user-facing Langfuse URLs to addresses reachable from Docker containers."""
     h = (host or "").strip().rstrip("/")
@@ -235,16 +225,41 @@ def ensure_litellm_config(repo_root: Path, config: NiyanConfig) -> Path:
     return generate_litellm_config(config, repo_root)
 
 
+# Compose interpolates every ${VAR:?} guard even for `down`/`logs`/`exec`.
+GUARDED_VARS = (
+    "POSTGRES_PASSWORD",
+    "LANGFUSE_NEXTAUTH_SECRET",
+    "LANGFUSE_SALT",
+    "LANGFUSE_ENCRYPTION_KEY",
+    "LITELLM_MASTER_KEY",
+    "NIYAN_ADMIN_PASSWORD",
+    "NIYAN_JWT_SECRET",
+)
+PLACEHOLDER = "__niyan_unused__"
+
+
+def placeholder_env(env: dict) -> dict:
+    """Fill empty guarded vars with a dummy so non-starting commands work."""
+    out = dict(env)
+    for k in GUARDED_VARS:
+        if not (out.get(k) or "").strip():
+            out[k] = PLACEHOLDER
+    return out
+
+
 def run_compose(
     repo_root: Path,
     config: NiyanConfig,
     args: List[str],
     check: bool = True,
+    placeholders: bool = False,
 ) -> subprocess.CompletedProcess:
     profile = detect_profile(config.profile)
     ensure_litellm_config(repo_root, config)
     cmd = compose_cmd(repo_root, profile, config) + args
     env = build_env(repo_root, profile, config)
+    if placeholders:
+        env = placeholder_env(env)
     return subprocess.run(cmd, cwd=str(repo_root), env=env, check=check)
 
 
@@ -255,11 +270,10 @@ class InsecureSecretsError(RuntimeError):
 def assert_secure_env(env: dict) -> None:
     """Refuse to start with empty / shipped-default secrets unless NIYAN_ALLOW_INSECURE_DEFAULTS=1."""
     from niyan.secrets_init import check_secrets
+    from niyan.secrets_policy import insecure_allowed
 
-    if env.get("NIYAN_ALLOW_INSECURE_DEFAULTS", "").lower() in {"1", "true", "yes"}:
-        return
     bad = check_secrets(env)
-    if bad:
+    if bad and not insecure_allowed(env):
         raise InsecureSecretsError(
             "Refusing to start: empty or default secrets: " + ", ".join(bad)
             + ". Run `niyan secrets init` (or ./install.sh). For throwaway dev only, set "
@@ -291,7 +305,7 @@ def stack_down(repo_root: Path, config: NiyanConfig, volumes: bool = False) -> N
     args = ["down", "--remove-orphans"]
     if volumes:
         args.append("--volumes")
-    run_compose(repo_root, config, args, check=False)
+    run_compose(repo_root, config, args, check=False, placeholders=True)
 
 
 def stack_ps(repo_root: Path, config: NiyanConfig) -> str:
@@ -308,5 +322,5 @@ def stack_logs(repo_root: Path, config: NiyanConfig, service: Optional[str], fol
     # Don't capture — stream to terminal
     profile = detect_profile(config.profile)
     cmd = compose_cmd(repo_root, profile, config) + args
-    env = build_env(repo_root, profile, config)
+    env = placeholder_env(build_env(repo_root, profile, config))
     subprocess.run(cmd, cwd=str(repo_root), env=env)

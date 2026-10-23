@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -21,7 +22,7 @@ from niyan.config import (
 )
 from niyan.doctor import detect_profile, run_doctor
 from niyan.local_compose import InsecureSecretsError, find_repo_root, recreate_litellm, stack_down, stack_logs, stack_up
-from niyan.secrets_init import ensure_secrets
+from niyan.secrets_init import SecretsInitError, ensure_secrets, write_private
 from niyan.shell_init import detect_shell, init_shell
 from niyan.uninstall import run_uninstall
 
@@ -76,8 +77,10 @@ def _api(repo: Path, login: bool = False) -> NiyanApiClient:
         try:
             client.login(cfg.admin_auth.username, cfg.admin_auth.password)
         except Exception as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            detail = f"HTTP {status}" if status else exc.__class__.__name__
             console.print(
-                f"[yellow]niyan-api login failed ({exc.__class__.__name__}); the API and niyan.yaml "
+                f"[yellow]niyan-api login failed ({detail}); the API and niyan.yaml "
                 "admin_auth may be out of sync — run `niyan up` to re-apply.[/yellow]"
             )
     return client
@@ -108,14 +111,14 @@ def init(
         if not example.exists():
             console.print(f"[red]Missing example config at {example}[/red]")
             raise typer.Exit(1)
-        shutil.copy(example, dest)
+        write_private(dest, example.read_text(encoding="utf-8"))
         env_example = repo / ".env.example"
         env_dest = repo / ".env"
         if env_example.exists() and not env_dest.exists():
-            shutil.copy(env_example, env_dest)
+            write_private(env_dest, env_example.read_text(encoding="utf-8"))
         console.print(f"[green]Wrote {dest}[/green]")
     if dest.exists():
-        _print_secrets_report(ensure_secrets(repo))
+        _print_secrets_report(_ensure_secrets_or_exit(repo))
     if shell:
         action, rc = init_shell(repo)
         console.print(f"[green]Shell {action}:[/green] {rc}")
@@ -215,7 +218,7 @@ def up(
         )
     try:
         stack_up(repo, cfg, build=build)
-    except InsecureSecretsError as exc:
+    except (InsecureSecretsError, SecretsInitError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1)
     console.print("[green]Stack starting.[/green]")
@@ -285,7 +288,9 @@ def uninstall(
 
     sys.stdout.flush()
     venv = repo / ".venv"
-    if venv.exists():
+    # Windows: the running python.exe / DLLs are locked; uninstall.ps1 removes
+    # .venv after this process exits (in-process rmtree leaves it half-deleted).
+    if venv.exists() and os.name != "nt":
         shutil.rmtree(venv, ignore_errors=True)
 
 
@@ -635,7 +640,17 @@ def config_show() -> None:
     console.print(_config_path(repo).read_text())
 
 
+def _ensure_secrets_or_exit(repo: Path) -> dict:
+    try:
+        return ensure_secrets(repo)
+    except SecretsInitError as exc:
+        console.print(f"[red]Secrets not changed:[/red] {exc}", markup=True)
+        raise typer.Exit(2)
+
+
 def _print_secrets_report(report: dict) -> None:
+    if report.get("rotated"):
+        console.print("[green]Rotated in place (data kept):[/green] " + ", ".join(report["rotated"]))
     if report["generated"]:
         console.print("[green]Generated secrets:[/green] " + ", ".join(report["generated"]))
     if report["kept"]:
@@ -645,22 +660,56 @@ def _print_secrets_report(report: dict) -> None:
 
 
 @secrets_app.command("init")
-def secrets_init() -> None:
-    """Generate missing secrets into .env / niyan.yaml (chmod 600). Never overwrites real values."""
+def secrets_init(
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable report (names only, no values)"),
+) -> None:
+    """Generate missing secrets into .env / niyan.yaml (chmod 600). Never overwrites real values.
+
+    Old default installs are migrated in place (Postgres password via ALTER USER).
+    Fails closed (exit 2, nothing changed) when Docker is unreachable.
+    """
+    import json as _json
+
     repo = _repo()
     if not _config_path(repo).exists():
         console.print("[yellow]niyan.yaml missing — run `niyan init` first[/yellow]")
         raise typer.Exit(1)
-    _print_secrets_report(ensure_secrets(repo))
+    if not as_json:
+        _print_secrets_report(_ensure_secrets_or_exit(repo))
+        return
+    try:
+        report = ensure_secrets(repo)
+    except SecretsInitError as exc:
+        print(_json.dumps({"ok": False, "error": str(exc)}))
+        raise typer.Exit(2)
+    print(_json.dumps({"ok": True, **report}))
 
 
 @secrets_app.command("show")
 def secrets_show(
     all_: bool = typer.Option(False, "--all", help="Also print the gateway API key and JWT secret"),
+    field: str = typer.Option(
+        "", "--field", help="Print one raw value for scripts: username|password|api_key|jwt_secret"
+    ),
 ) -> None:
-    """Print the admin login (from niyan.yaml, the same source the API uses)."""
+    """Print the admin login (from niyan.yaml, the same source the API uses).
+
+    Values land in your terminal scrollback; clear it if the screen is shared.
+    """
     repo = _repo()
     cfg = _load(repo)
+    if field:
+        vals = {
+            "username": cfg.admin_auth.username,
+            "password": cfg.admin_auth.password,
+            "api_key": cfg.proxy.api_keys[0] if cfg.proxy.api_keys else "",
+            "jwt_secret": cfg.admin_auth.jwt_secret,
+        }
+        if field not in vals:
+            console.print(f"[red]unknown field {field}[/red]")
+            raise typer.Exit(1)
+        print(vals[field])
+        return
     console.print(f"Admin UI user:     {cfg.admin_auth.username}")
     console.print(f"Admin UI password: {cfg.admin_auth.password}")
     if all_:
@@ -669,12 +718,17 @@ def secrets_show(
 
 
 @gateway_app.command("keys")
-def gateway_keys() -> None:
-    """List proxy API keys from config."""
+def gateway_keys(
+    plain: bool = typer.Option(False, "--plain", help="Raw keys, one per line (for scripts / export)"),
+) -> None:
+    """List proxy API keys from config (use as NIYAN_API_KEY / Bearer token)."""
     repo = _repo()
     cfg = _load(repo)
     for k in cfg.proxy.api_keys:
-        console.print(k)
+        if plain:
+            print(k)
+        else:
+            console.print(k, markup=False, highlight=False)
 
 
 if __name__ == "__main__":
