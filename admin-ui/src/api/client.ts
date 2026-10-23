@@ -284,8 +284,10 @@ export const api = {
     }>("/api/providers"),
   putProviders: (body: Record<string, unknown>) =>
     request("/api/providers", { method: "PUT", body: JSON.stringify(body) }),
-  gateway: () => request<{ port: number; api_keys: string[]; models: unknown[] }>("/api/gateway/config"),
-  putGateway: (body: { port: number; api_keys: string[] }) =>
+  gateway: () =>
+    request<{ port: number; api_keys: string[]; models: unknown[]; api_keys_hint?: string }>("/api/gateway/config"),
+  // Keys are read-only (rotate with `niyan secrets rotate gateway-key`); only the port is saved.
+  putGateway: (body: { port: number }) =>
     request("/api/gateway/config", { method: "PUT", body: JSON.stringify(body) }),
   guardrails: () => request<Record<string, unknown>>("/api/guardrails/config"),
   putGuardrails: (body: Record<string, unknown>) =>

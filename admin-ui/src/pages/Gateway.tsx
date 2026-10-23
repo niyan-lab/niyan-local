@@ -173,11 +173,8 @@ print(chat.choices[0].message.content)`,
     setMsg("");
     setError("");
     try {
-      await api.putGateway({
-        port,
-        api_keys: keys.split("\n").map((k) => k.trim()).filter(Boolean),
-      });
-      setMsg("Gateway port and keys saved. Recreate the stack if the port changed.");
+      await api.putGateway({ port });
+      setMsg("Gateway port saved. Run `niyan up` to recreate the stack with the new port.");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -225,7 +222,9 @@ print(chat.choices[0].message.content)`,
             <h2 style={{ margin: 0 }}>Port and API keys</h2>
             <p className="muted" style={{ margin: "0.35rem 0 0" }}>
               Changing the listen port needs a stack recreate. Keys authenticate every{" "}
-              <code>/v1</code> request.
+              <code>/v1</code> request and are read-only here, so this page always shows the key the
+              gateway enforces. To rotate: <code>niyan secrets rotate gateway-key</code>, then{" "}
+              <code>niyan up</code>.
             </p>
           </div>
           <button type="button" className="secondary" onClick={() => setShowAdvanced((v) => !v)}>
@@ -244,16 +243,14 @@ print(chat.choices[0].message.content)`,
               />
             </div>
             <div className="field">
-              <label htmlFor="gw-keys">API keys (one per line)</label>
-              <textarea
-                id="gw-keys"
-                rows={4}
-                value={keys}
-                onChange={(e) => setKeys(e.target.value)}
-              />
+              <label htmlFor="gw-keys">API keys (read-only)</label>
+              <textarea id="gw-keys" rows={4} value={keys} readOnly aria-readonly="true" />
+              <p className="muted" style={{ margin: "0.35rem 0 0" }}>
+                Rotate with <code>niyan secrets rotate gateway-key</code>, then <code>niyan up</code>.
+              </p>
             </div>
             <button type="submit" disabled={busy}>
-              {busy ? "Saving…" : "Save"}
+              {busy ? "Saving…" : "Save port"}
             </button>
           </form>
         ) : null}

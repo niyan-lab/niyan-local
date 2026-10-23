@@ -717,6 +717,29 @@ def secrets_show(
         console.print(f"JWT secret:        {cfg.admin_auth.jwt_secret}")
 
 
+@secrets_app.command("rotate")
+def secrets_rotate(
+    what: str = typer.Argument(..., help="What to rotate: gateway-key"),
+) -> None:
+    """Rotate a secret in niyan.yaml (the single source). Then run `niyan up`.
+
+    gateway-key: replaces proxy.api_keys with one new key (old keys stop working
+    after `niyan up` recreates the gateway). The new key is not printed; read it
+    with `niyan gateway keys --plain`.
+    """
+    from niyan.secrets_init import _hex, _yaml_set_api_keys
+
+    if what not in ("gateway-key", "gateway-keys"):
+        console.print(f"[red]unknown secret {what!r}; supported: gateway-key[/red]")
+        raise typer.Exit(2)
+    repo = _repo()
+    path = _config_path(repo)
+    text = path.read_bytes().decode("utf-8")
+    write_private(path, _yaml_set_api_keys(text, [f"sk-niyan-{_hex(24)}"]))
+    console.print("Rotated the gateway key in niyan.yaml (not printed; see `niyan gateway keys --plain`).")
+    console.print("Run [bold]niyan up[/bold] so the gateway enforces the new key.")
+
+
 @gateway_app.command("keys")
 def gateway_keys(
     plain: bool = typer.Option(False, "--plain", help="Raw keys, one per line (for scripts / export)"),

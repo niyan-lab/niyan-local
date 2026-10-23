@@ -272,3 +272,19 @@ def test_marked_key_docker_down_is_kept(tmp_path):
     r = _ens(tmp_path, None)
     assert _env(tmp_path)["LANGFUSE_SALT"] == "niyan-langfuse-salt-change-me"
     assert any("not re-checked" in w for w in r["warnings"])
+
+
+def test_cli_secrets_rotate_gateway_key(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+    import niyan.main as cli_main
+
+    _setup(tmp_path)
+    _ens(tmp_path, False)
+    old = load_config(tmp_path / "niyan.yaml").proxy.api_keys
+    monkeypatch.setattr(cli_main, "_repo", lambda: tmp_path)
+    r = CliRunner().invoke(cli_main.app, ["secrets", "rotate", "gateway-key"])
+    assert r.exit_code == 0, r.output
+    new = load_config(tmp_path / "niyan.yaml").proxy.api_keys
+    assert len(new) == 1 and new != old and not is_insecure(new[0]) and new[0] not in r.output
+    assert stat.S_IMODE((tmp_path / "niyan.yaml").stat().st_mode) == 0o600
+    assert CliRunner().invoke(cli_main.app, ["secrets", "rotate", "bogus"]).exit_code == 2
