@@ -1,4 +1,5 @@
 FROM python:3.11-slim
+LABEL org.opencontainers.image.licenses="Apache-2.0"
 ARG NIYAN_PLATFORM=vm
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*

@@ -370,7 +370,7 @@ On **Load Testing**, you pick:
 | Target | `gateway_chat`, `gateway_embeddings`, `gateway_domain`, or `custom` |
 | Model / domain / prompt | What Locust sends |
 | Users / spawn / duration | Locust `-u`, `-r`, `-t` (caps: 50 users, 5–600s) |
-| Bearer token | Usually your gateway key (`niyan gateway keys`) (gateway key) |
+| Bearer token | Usually your gateway key (`niyan gateway keys --plain`) |
 
 **Start** calls:
 

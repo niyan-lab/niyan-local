@@ -52,10 +52,27 @@ There are no shared default credentials. On first run `install.sh` / `install.ps
 - `niyan.yaml`: `admin_auth.password`, `admin_auth.jwt_secret`, `proxy.api_keys` (gateway / LiteLLM master key). The CLI login and the control API both read these.
 - `.env`: `POSTGRES_PASSWORD`, `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY`.
 
-Re-running the installer keeps existing values (rotating the Postgres/Langfuse ones would orphan data). The admin password is printed once at the end of the first install; later use `niyan secrets show` (`--all` adds the API key and JWT secret). `niyan up`, the gateway and the control API refuse to start with empty or old default secrets unless `NIYAN_ALLOW_INSECURE_DEFAULTS=1` is set (throwaway dev only). To rotate everything: `./uninstall.sh --volumes && ./install.sh`.
+Re-running the installer keeps existing strong values. The admin password is printed at the end of an install that generated it (it then sits in your terminal scrollback — clear it on shared screens); later use `niyan secrets show` (`--all` adds the API key and JWT secret, `--field password` prints one raw value for scripts). `niyan up`, the gateway and the control API refuse to start with empty or old default secrets. For throwaway dev/tests only, `NIYAN_ALLOW_INSECURE_DEFAULTS=1` (exactly `1`) bypasses that check with a loud warning; it is not wired into the release/pull-only Compose files. LiteLLM and Langfuse do not check their own secrets — the `niyan up` pre-check (and `~/.niyan/bin/niyan up` for pull-only installs) is what guards them. Secrets are never stored in Postgres/Redis; `/api/config` returns them masked.
+
+### Upgrading from an older install (shared default secrets)
+
+Builds before per-install secrets shipped `niyan` / `sk-niyan-local` / `change-me…` defaults. Just pull and re-run the installer — **with Docker running**:
 
 ```bash
-export NIYAN_API_KEY="$(niyan gateway keys | head -1)"
+git pull && ./install.sh        # pull-only: re-run the bootstrap installer
+niyan up
+niyan secrets show              # new admin password
+```
+
+What happens, without wiping data:
+
+- **Postgres** (`niyan_niyan_pg` volume exists): a new password is applied in place with `ALTER USER` (over the container's local socket), verified over TCP, then written to `.env`. `niyan up` recreates containers with it.
+- **Langfuse** `LANGFUSE_NEXTAUTH_SECRET` is rotated (only logs users out). `LANGFUSE_SALT` / `LANGFUSE_ENCRYPTION_KEY` are rotated only if no Langfuse rows depend on them (API keys / stored LLM keys). Otherwise the old public value is **kept**, marked `NIYAN_LEGACY_LANGFUSE_SALT=1` / `NIYAN_LEGACY_LANGFUSE_ENCRYPTION_KEY=1` in `.env`, and the installer warns: anyone with repo access knows that key, so export Langfuse data and do `./uninstall.sh --volumes && ./install.sh` when you can.
+- **Admin password, JWT secret, gateway key** in `niyan.yaml` are regenerated. Old secrets stored in the Postgres config table are scrubbed on API start and an admin-UI save cannot write a default back. Update clients that used `sk-niyan-local` to `niyan gateway keys --plain`.
+- **Docker not running**: the installer refuses (exit 2) and changes nothing, because it cannot tell whether data exists.
+
+```bash
+export NIYAN_API_KEY="$(niyan gateway keys --plain | head -1)"
 ```
 
 ## Start
@@ -73,7 +90,7 @@ Repo-local fallback (no shell init): `./niyan.sh …` or `.\niyan.cmd …`
 | Admin UI | http://127.0.0.1:3080 (`admin` / password from `niyan secrets show`) |
 | Gateway (OpenAI API) | http://127.0.0.1:4000 — Swagger at `/docs` |
 | Control API | http://127.0.0.1:8100 |
-| Gateway API key | generated per install — `niyan gateway keys` |
+| Gateway API key | generated per install — `niyan gateway keys --plain` (export as `NIYAN_API_KEY`) |
 
 Pull local models (Mac/Windows: host Ollama; Linux: Compose):
 
