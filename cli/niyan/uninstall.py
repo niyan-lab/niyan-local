@@ -15,7 +15,15 @@ def run_uninstall(
     *,
     volumes: bool = False,
     keep_config: bool = False,
+    defer_venv: bool = False,
 ) -> list[str]:
+    """Best-effort uninstall.
+
+    ``defer_venv``: leave ``.venv`` for the caller to delete *after* it has finished
+    printing. The CLI runs from that venv and rich lazily imports modules such as
+    ``rich._emoji_codes`` on first markup render; deleting the venv first made the
+    final ``console.print`` crash with ``ModuleNotFoundError``.
+    """
     notes: list[str] = []
     yaml_path = repo / "niyan.yaml"
     if yaml_path.exists():
@@ -35,8 +43,11 @@ def run_uninstall(
 
     venv = repo / ".venv"
     if venv.exists():
-        shutil.rmtree(venv)
-        notes.append(f"removed {venv}")
+        if defer_venv:
+            notes.append(f"removing {venv}")
+        else:
+            shutil.rmtree(venv)
+            notes.append(f"removed {venv}")
 
     generated = repo / "services" / "litellm" / "config.generated.yaml"
     if generated.exists():

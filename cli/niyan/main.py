@@ -273,9 +273,17 @@ def uninstall(
             prompt += " (including Docker volumes)"
         if not typer.confirm(f"{prompt}?", default=False):
             raise typer.Abort()
-    for line in run_uninstall(repo, volumes=volumes, keep_config=keep_config):
-        console.print(f"  {line}")
+    for line in run_uninstall(repo, volumes=volumes, keep_config=keep_config, defer_venv=True):
+        console.print(f"  {line}", markup=False, emoji=False)
     console.print("[green]Uninstalled.[/green] Reinstall with ./install.sh or .\\install.ps1")
+    # Delete the venv we are running from only after all rich output is done
+    # (rich imports submodules lazily; see run_uninstall docstring).
+    import sys
+
+    sys.stdout.flush()
+    venv = repo / ".venv"
+    if venv.exists():
+        shutil.rmtree(venv, ignore_errors=True)
 
 
 @app.command()
