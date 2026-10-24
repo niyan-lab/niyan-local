@@ -54,10 +54,16 @@ if [[ -x "$NIYAN" && "${NIYAN_UNINSTALL_SKIP_CLI:-0}" != "1" ]]; then
   args=(uninstall --yes)
   if [[ "$VOLUMES" == "1" ]]; then args+=(--volumes); fi
   if [[ "$KEEP_CONFIG" == "1" ]]; then args+=(--keep-config); fi
-  if "$NIYAN" "${args[@]}"; then
+  cli_rc=0
+  "$NIYAN" "${args[@]}" || cli_rc=$?
+  if [[ "$cli_rc" == "0" ]]; then
     exit 0
   fi
-  echo "CLI failed — falling back to manual cleanup" >&2
+  if [[ "$cli_rc" == "3" ]]; then
+    # Compose could not stop the stack; the CLI removed nothing. Do not fall back.
+    exit 3
+  fi
+  echo "CLI failed (exit $cli_rc) — falling back to manual cleanup" >&2
 else
   echo "CLI venv missing (or skipped) — falling back to Compose + shell cleanup"
 fi
@@ -86,9 +92,9 @@ if command -v docker >/dev/null 2>&1 && [[ -f "$ROOT/deploy/docker-compose.yml" 
   down_args=(down --remove-orphans)
   if [[ "$VOLUMES" == "1" ]]; then down_args+=(--volumes); fi
   if ! "${compose[@]}" "${down_args[@]}"; then
-    FALLBACK_RC=1
-    echo "error: docker compose down failed (is Docker running?). Containers/volumes may remain;" >&2
-    echo "       re-run ./uninstall.sh once Docker is up." >&2
+    echo "error: docker compose down failed (is Docker running?)." >&2
+    echo "       Nothing was removed. Start Docker and re-run ./uninstall.sh." >&2
+    exit 3
   fi
 else
   echo "warning: docker not found — skipping container/volume cleanup" >&2

@@ -20,7 +20,7 @@ Usage:
   niyan logs [-f] [service]
   niyan pull
   niyan secrets rotate gateway-key   (then: niyan up)
-  niyan uninstall [--volumes]
+  niyan uninstall [--volumes] [--yes]
   niyan version
   niyan help
 
@@ -253,22 +253,44 @@ PY
 
 cmd_uninstall() {
   volumes=0
+  yes=0
   for arg in "$@"; do
     case "$arg" in
       --volumes|-v) volumes=1 ;;
+      --yes|-y) yes=1 ;;
       -h|--help)
-        echo "Usage: niyan uninstall [--volumes]"
-        echo "Stops the stack, unwires PATH, and deletes ~/.niyan"
+        echo "Usage: niyan uninstall [--volumes] [--yes]"
+        echo "Stops the stack, unwires PATH, and deletes $NIYAN_HOME"
+        echo "  --volumes  also delete Docker volumes (Postgres, Redis, ...)"
+        echo "  --yes      do not prompt"
         return 0
+        ;;
+      *)
+        echo "error: unknown flag: $arg (try: niyan uninstall --help)" >&2
+        return 2
         ;;
     esac
   done
+  if [ "$yes" -ne 1 ]; then
+    prompt="Stop Niyan and delete $NIYAN_HOME"
+    if [ "$volumes" -eq 1 ]; then prompt="$prompt (including Docker volumes)"; fi
+    if [ ! -t 0 ]; then
+      echo "error: $prompt? Refusing without a terminal; pass --yes." >&2
+      return 2
+    fi
+    printf '%s? [y/N] ' "$prompt"
+    read -r reply
+    case "$reply" in
+      y|Y|yes|YES) ;;
+      *) echo "Aborted."; return 1 ;;
+    esac
+  fi
   down_args=(down --remove-orphans)
   if [ "$volumes" -eq 1 ]; then down_args+=(--volumes); fi
   if [ -f "$STACK/docker-compose.yml" ]; then
     if ! run_compose "${down_args[@]}"; then
       echo "error: docker compose down failed (is Docker running?). Not deleting $NIYAN_HOME so you can retry." >&2
-      return 1
+      return 3
     fi
   fi
   strip_shell_block

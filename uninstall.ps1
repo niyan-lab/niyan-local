@@ -37,6 +37,10 @@ if ((Test-Path $niyan) -and ($env:NIYAN_UNINSTALL_SKIP_CLI -ne "1")) {
         if (Test-Path $venv) { Remove-Item -Recurse -Force $venv }
         exit 0
     }
+    if ($LASTEXITCODE -eq 3) {
+        # Compose could not stop the stack; the CLI removed nothing. Do not fall back.
+        exit 3
+    }
     Write-Warning "CLI failed (exit $LASTEXITCODE) - falling back to manual cleanup"
 } else {
     Write-Host "CLI venv missing (or skipped) - falling back to Compose + shell cleanup"
@@ -68,8 +72,8 @@ if (Get-Command docker -ErrorAction SilentlyContinue) {
     if ($Volumes) { $down += "--volumes" }
     & docker @composeArgs @down
     if ($LASTEXITCODE -ne 0) {
-        $fallbackRc = 1
-        Write-Error "docker compose down failed (is Docker running?). Re-run .\uninstall.ps1 once Docker is up." -ErrorAction Continue
+        Write-Error "docker compose down failed (is Docker running?). Nothing was removed. Start Docker and re-run .\uninstall.ps1." -ErrorAction Continue
+        exit 3
     }
 } else {
     Write-Warning "docker not found - skipping container/volume cleanup"
