@@ -4,8 +4,9 @@ on:
   push:
     branches: [dev, main]
     paths: ["**/*.sh", "bootstrap/bin/niyan", ".github/workflows/shell-lint.yml"]
+  # No path filter on PRs: these jobs are required checks, and a filtered-out
+  # required check never reports, which would block unrelated PRs. Both run in ~10s.
   pull_request:
-    paths: ["**/*.sh", "bootstrap/bin/niyan", ".github/workflows/shell-lint.yml"]
 
 # Shell files without a .sh suffix (e.g. bootstrap/bin/niyan) must be listed explicitly
 # in the path filters and both file lists below.
