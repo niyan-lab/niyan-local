@@ -3,9 +3,12 @@ name: shell-lint
 on:
   push:
     branches: [dev, main]
-    paths: ["**/*.sh", ".github/workflows/shell-lint.yml"]
+    paths: ["**/*.sh", "bootstrap/bin/niyan", ".github/workflows/shell-lint.yml"]
   pull_request:
-    paths: ["**/*.sh", ".github/workflows/shell-lint.yml"]
+    paths: ["**/*.sh", "bootstrap/bin/niyan", ".github/workflows/shell-lint.yml"]
+
+# Shell files without a .sh suffix (e.g. bootstrap/bin/niyan) must be listed explicitly
+# in the path filters and both file lists below.
 
 permissions:
   contents: read
@@ -18,7 +21,7 @@ jobs:
       - name: shellcheck (warnings and above)
         run: |
           shellcheck --version
-          git ls-files -z '*.sh' | xargs -0 shellcheck -S warning
+          git ls-files -z '*.sh' 'bootstrap/bin/niyan' | xargs -0 shellcheck -S warning
 
   bash32:
     # macOS ships bash 3.2; installers must parse and run under it.
@@ -31,7 +34,7 @@ jobs:
           fail=0
           while IFS= read -r -d '' f; do
             /bin/bash -n "$f" || { echo "::error file=$f::bash 3.2 parse failure"; fail=1; }
-          done < <(git ls-files -z '*.sh')
+          done < <(git ls-files -z '*.sh' 'bootstrap/bin/niyan')
           exit $fail
       - name: uninstall.sh --help runs under bash 3.2
         run: /bin/bash ./uninstall.sh --help
