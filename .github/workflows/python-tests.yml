@@ -1,0 +1,45 @@
+name: python-tests
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  cli:
+    name: cli (py${{ matrix.python }})
+    # ubuntu-latest (26.04) has no prebuilt 3.9; 22.04 still does.
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 = cli/pyproject.toml requires-python floor (and macOS /usr/bin/python3).
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        working-directory: cli
+        run: pip install -e . pytest
+      - name: Test
+        working-directory: cli
+        run: python -m pytest -q
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11" # matches api/Dockerfile
+      - name: Install
+        working-directory: api
+        run: pip install -r requirements.txt pytest
+      - name: Test
+        working-directory: api
+        run: python -m pytest -q

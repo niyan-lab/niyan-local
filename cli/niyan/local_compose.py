@@ -301,11 +301,11 @@ def recreate_litellm(repo_root: Path, config: NiyanConfig) -> None:
     )
 
 
-def stack_down(repo_root: Path, config: NiyanConfig, volumes: bool = False) -> None:
+def stack_down(repo_root: Path, config: NiyanConfig, volumes: bool = False) -> int:
     args = ["down", "--remove-orphans"]
     if volumes:
         args.append("--volumes")
-    run_compose(repo_root, config, args, check=False, placeholders=True)
+    return run_compose(repo_root, config, args, check=False, placeholders=True).returncode
 
 
 def stack_ps(repo_root: Path, config: NiyanConfig) -> str:

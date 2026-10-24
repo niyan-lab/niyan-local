@@ -24,7 +24,13 @@ from niyan.doctor import detect_profile, run_doctor
 from niyan.local_compose import InsecureSecretsError, find_repo_root, recreate_litellm, stack_down, stack_logs, stack_up
 from niyan.secrets_init import SecretsInitError, ensure_secrets, write_private
 from niyan.shell_init import detect_shell, init_shell
-from niyan.uninstall import run_uninstall
+from niyan.uninstall import (
+    EXIT_COMPOSE_FAILED,
+    EXIT_NO_CONFIG,
+    ComposeDownFailed,
+    MissingConfig,
+    run_uninstall,
+)
 
 app = typer.Typer(
     name="niyan",
@@ -279,7 +285,26 @@ def uninstall(
             prompt += " (including Docker volumes)"
         if not typer.confirm(f"{prompt}?", default=False):
             raise typer.Abort()
-    for line in run_uninstall(repo, volumes=volumes, keep_config=keep_config, defer_venv=True):
+    try:
+        notes = run_uninstall(repo, volumes=volumes, keep_config=keep_config, defer_venv=True)
+    except ComposeDownFailed as exc:
+        console.print(f"error: {exc}", markup=False, emoji=False)
+        console.print(
+            "Nothing was removed. Start Docker and re-run the uninstall.",
+            markup=False,
+            emoji=False,
+        )
+        raise typer.Exit(EXIT_COMPOSE_FAILED)
+    except MissingConfig as exc:
+        console.print(f"error: {exc}", markup=False, emoji=False)
+        console.print(
+            "Nothing was removed. Run ./uninstall.sh (or .\\uninstall.ps1), which stops the "
+            "stack without niyan.yaml.",
+            markup=False,
+            emoji=False,
+        )
+        raise typer.Exit(EXIT_NO_CONFIG)
+    for line in notes:
         console.print(f"  {line}", markup=False, emoji=False)
     console.print("[green]Uninstalled.[/green] Reinstall with ./install.sh or .\\install.ps1")
     # Delete the venv we are running from only after all rich output is done

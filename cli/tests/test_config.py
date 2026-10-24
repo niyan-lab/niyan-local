@@ -105,9 +105,9 @@ def test_run_uninstall_removes_venv_and_config(tmp_path):
     (repo / "services" / "litellm").mkdir(parents=True)
     (repo / "services" / "litellm" / "config.generated.yaml").write_text("x: 1\n", encoding="utf-8")
 
-    with patch("niyan.uninstall.load_config", side_effect=RuntimeError("no docker")), patch(
-        "niyan.uninstall.init_shell", return_value=("removed", tmp_path / ".zshrc")
-    ):
+    with patch("niyan.uninstall.load_config", return_value=object()), patch(
+        "niyan.uninstall.stack_down", return_value=0
+    ), patch("niyan.uninstall.init_shell", return_value=("removed", tmp_path / ".zshrc")):
         notes = run_uninstall(repo, volumes=False, keep_config=False)
 
     assert not (repo / ".venv").exists()

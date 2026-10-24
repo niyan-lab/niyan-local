@@ -9,6 +9,21 @@ from niyan.config import load_config
 from niyan.local_compose import stack_down
 from niyan.shell_init import init_shell
 
+# Exit code used by `niyan uninstall` when Compose could not stop the stack.
+# uninstall.sh / uninstall.ps1 treat it as "nothing changed, do not fall back".
+EXIT_COMPOSE_FAILED = 3
+
+
+EXIT_NO_CONFIG = 4
+
+
+class ComposeDownFailed(RuntimeError):
+    """Compose could not stop the stack; nothing was removed."""
+
+
+class MissingConfig(RuntimeError):
+    """niyan.yaml is gone, so the CLI cannot build the Compose command; nothing was removed."""
+
 
 def run_uninstall(
     repo: Path,
@@ -17,7 +32,11 @@ def run_uninstall(
     keep_config: bool = False,
     defer_venv: bool = False,
 ) -> list[str]:
-    """Best-effort uninstall.
+    """Uninstall a from-source checkout.
+
+    Stopping the stack comes first. If Compose fails (Docker down, compose error),
+    ``ComposeDownFailed`` is raised before anything is removed, so the user can
+    start Docker and re-run with niyan.yaml, .env and .venv intact.
 
     ``defer_venv``: leave ``.venv`` for the caller to delete *after* it has finished
     printing. The CLI runs from that venv and rich lazily imports modules such as
@@ -29,14 +48,18 @@ def run_uninstall(
     if yaml_path.exists():
         try:
             cfg = load_config(yaml_path)
-            stack_down(repo, cfg, volumes=volumes)
-            notes.append(
-                "stopped Compose stack" + (" and deleted volumes" if volumes else "")
-            )
-        except Exception as exc:  # pragma: no cover — best-effort when Docker is down
-            notes.append(f"stack stop skipped: {exc}")
+            rc = stack_down(repo, cfg, volumes=volumes)
+        except Exception as exc:
+            raise ComposeDownFailed(f"could not stop the Compose stack: {exc}") from exc
+        if rc != 0:
+            raise ComposeDownFailed(f"docker compose down exited {rc}")
+        notes.append(
+            "stopped Compose stack" + (" and deleted volumes" if volumes else "")
+        )
     else:
-        notes.append("no niyan.yaml — skipped Compose down")
+        # Containers may still be running; ./uninstall.sh's fallback stops them
+        # with the default project and every profile.
+        raise MissingConfig("niyan.yaml not found; cannot stop the stack from the CLI")
 
     action, rc = init_shell(repo, reverse=True)
     notes.append(f"shell hook {action}: {rc}")
