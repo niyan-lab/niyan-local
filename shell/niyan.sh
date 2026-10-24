@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Niyan shell hook — sourced after NIYAN_ROOT is set (see `niyan shell init`).
 # Mirrors Conda's profile.d pattern: once initialized in ~/.bashrc / ~/.zshrc,
 # the `niyan` command is available in every new shell without cd'ing into the repo.
