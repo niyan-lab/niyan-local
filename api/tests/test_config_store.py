@@ -137,3 +137,34 @@ def test_db_store_save_raises_when_db_and_file_fail(tmp_path: Path):
     store = HarnessStore(ReadOnlyFile(tmp_path / "niyan.yaml", tmp_path), db_down=True)
     with pytest.raises(RuntimeError, match="db down"):
         store.save(NiyanConfig(profile="nowhere"))
+
+
+def test_b1_legacy_db_defaults_do_not_override_yaml_secrets(tmp_path: Path):
+    """Old DB row with shipped defaults + new yaml secrets -> yaml wins, saves can't reintroduce defaults."""
+    import json as _json
+
+    path = tmp_path / "niyan.yaml"
+    gen = {"admin_auth": {"username": "admin", "password": "Gen-erated-pass-123456", "jwt_secret": "j" * 64},
+           "proxy": {"api_keys": ["sk-niyan-" + "a" * 48]}}
+    FileConfigStore(path=path, root=tmp_path).save(NiyanConfig.model_validate(gen))
+    store = HarnessStore(FileConfigStore(path=path, root=tmp_path))
+    store._row = NiyanConfig.model_validate(
+        {"admin_auth": {"username": "admin", "password": "niyan", "jwt_secret": "change-me-niyan-dev-secret"},
+         "proxy": {"api_keys": ["sk-niyan-local"]}, "profile": "from-db"}
+    ).model_dump(mode="json")
+    cfg = store.load()
+    assert cfg.admin_auth.password == "Gen-erated-pass-123456"
+    assert cfg.admin_auth.jwt_secret == "j" * 64
+    assert cfg.proxy.api_keys == ["sk-niyan-" + "a" * 48]
+    # Admin UI save that round-trips old/masked values
+    incoming = cfg.model_copy(deep=True)
+    incoming.admin_auth.password = "niyan"
+    incoming.admin_auth.jwt_secret = "********"
+    incoming.proxy.api_keys = ["sk-niyan-local"]
+    store.save(incoming)
+    on_disk = FileConfigStore(path=path, root=tmp_path).load()
+    assert on_disk.admin_auth.password == "Gen-erated-pass-123456"
+    assert on_disk.proxy.api_keys == ["sk-niyan-" + "a" * 48]
+    payload = store._redis.data.get(REDIS_CONFIG_JSON)
+    assert payload
+    assert "Gen-erated-pass" not in payload and "sk-niyan-aaaa" not in payload and "j" * 64 not in payload

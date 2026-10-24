@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -20,7 +21,8 @@ from niyan.config import (
     save_config,
 )
 from niyan.doctor import detect_profile, run_doctor
-from niyan.local_compose import find_repo_root, recreate_litellm, stack_down, stack_logs, stack_up
+from niyan.local_compose import InsecureSecretsError, find_repo_root, recreate_litellm, stack_down, stack_logs, stack_up
+from niyan.secrets_init import SecretsInitError, ensure_secrets, write_private
 from niyan.shell_init import detect_shell, init_shell
 from niyan.uninstall import run_uninstall
 
@@ -37,6 +39,7 @@ gateway_app = typer.Typer(help="Gateway / API key helpers")
 config_app = typer.Typer(help="Show or mutate niyan.yaml")
 shell_app = typer.Typer(help="Shell integration (like `conda init`)")
 provider_app = typer.Typer(help="Configure OpenAI / Gemini / Anthropic API keys")
+secrets_app = typer.Typer(help="Generate or show per-install secrets (.env / niyan.yaml)")
 
 app.add_typer(model_app, name="model")
 app.add_typer(guardrails_app, name="guardrails")
@@ -46,6 +49,7 @@ app.add_typer(gateway_app, name="gateway")
 app.add_typer(config_app, name="config")
 app.add_typer(shell_app, name="shell")
 app.add_typer(provider_app, name="provider")
+app.add_typer(secrets_app, name="secrets")
 
 console = Console()
 
@@ -72,8 +76,13 @@ def _api(repo: Path, login: bool = False) -> NiyanApiClient:
     if login and client.healthy():
         try:
             client.login(cfg.admin_auth.username, cfg.admin_auth.password)
-        except Exception:
-            pass
+        except Exception as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            detail = f"HTTP {status}" if status else exc.__class__.__name__
+            console.print(
+                f"[yellow]niyan-api login failed ({detail}); the API and niyan.yaml "
+                "admin_auth may be out of sync — run `niyan up` to re-apply.[/yellow]"
+            )
     return client
 
 
@@ -102,12 +111,14 @@ def init(
         if not example.exists():
             console.print(f"[red]Missing example config at {example}[/red]")
             raise typer.Exit(1)
-        shutil.copy(example, dest)
+        write_private(dest, example.read_text(encoding="utf-8"))
         env_example = repo / ".env.example"
         env_dest = repo / ".env"
         if env_example.exists() and not env_dest.exists():
-            shutil.copy(env_example, env_dest)
+            write_private(env_dest, env_example.read_text(encoding="utf-8"))
         console.print(f"[green]Wrote {dest}[/green]")
+    if dest.exists():
+        _print_secrets_report(_ensure_secrets_or_exit(repo))
     if shell:
         action, rc = init_shell(repo)
         console.print(f"[green]Shell {action}:[/green] {rc}")
@@ -205,7 +216,11 @@ def up(
         console.print(
             f"[dim]{profile.value}: using host Ollama at host.docker.internal:11434[/dim]"
         )
-    stack_up(repo, cfg, build=build)
+    try:
+        stack_up(repo, cfg, build=build)
+    except (InsecureSecretsError, SecretsInitError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
     console.print("[green]Stack starting.[/green]")
     console.print(f"  Proxy (OpenAI):  http://127.0.0.1:{cfg.proxy.port}/v1/chat/completions")
     console.print(f"  Proxy Swagger:   http://127.0.0.1:{cfg.proxy.port}/docs")
@@ -264,9 +279,19 @@ def uninstall(
             prompt += " (including Docker volumes)"
         if not typer.confirm(f"{prompt}?", default=False):
             raise typer.Abort()
-    for line in run_uninstall(repo, volumes=volumes, keep_config=keep_config):
-        console.print(f"  {line}")
+    for line in run_uninstall(repo, volumes=volumes, keep_config=keep_config, defer_venv=True):
+        console.print(f"  {line}", markup=False, emoji=False)
     console.print("[green]Uninstalled.[/green] Reinstall with ./install.sh or .\\install.ps1")
+    # Delete the venv we are running from only after all rich output is done
+    # (rich imports submodules lazily; see run_uninstall docstring).
+    import sys
+
+    sys.stdout.flush()
+    venv = repo / ".venv"
+    # Windows: the running python.exe / DLLs are locked; uninstall.ps1 removes
+    # .venv after this process exits (in-process rmtree leaves it half-deleted).
+    if venv.exists() and os.name != "nt":
+        shutil.rmtree(venv, ignore_errors=True)
 
 
 @app.command()
@@ -615,13 +640,118 @@ def config_show() -> None:
     console.print(_config_path(repo).read_text())
 
 
+def _ensure_secrets_or_exit(repo: Path) -> dict:
+    try:
+        return ensure_secrets(repo)
+    except SecretsInitError as exc:
+        console.print(f"[red]Secrets not changed:[/red] {exc}", markup=True)
+        raise typer.Exit(2)
+
+
+def _print_secrets_report(report: dict) -> None:
+    if report.get("rotated"):
+        console.print("[green]Rotated in place (data kept):[/green] " + ", ".join(report["rotated"]))
+    if report["generated"]:
+        console.print("[green]Generated secrets:[/green] " + ", ".join(report["generated"]))
+    if report["kept"]:
+        console.print("[dim]Kept existing secrets:[/dim] " + ", ".join(report["kept"]))
+    for w in report["warnings"]:
+        console.print(f"[yellow]warning:[/yellow] {w}")
+
+
+@secrets_app.command("init")
+def secrets_init(
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable report (names only, no values)"),
+) -> None:
+    """Generate missing secrets into .env / niyan.yaml (chmod 600). Never overwrites real values.
+
+    Old default installs are migrated in place (Postgres password via ALTER USER).
+    Fails closed (exit 2, nothing changed) when Docker is unreachable.
+    """
+    import json as _json
+
+    repo = _repo()
+    if not _config_path(repo).exists():
+        console.print("[yellow]niyan.yaml missing — run `niyan init` first[/yellow]")
+        raise typer.Exit(1)
+    if not as_json:
+        _print_secrets_report(_ensure_secrets_or_exit(repo))
+        return
+    try:
+        report = ensure_secrets(repo)
+    except SecretsInitError as exc:
+        print(_json.dumps({"ok": False, "error": str(exc)}))
+        raise typer.Exit(2)
+    print(_json.dumps({"ok": True, **report}))
+
+
+@secrets_app.command("show")
+def secrets_show(
+    all_: bool = typer.Option(False, "--all", help="Also print the gateway API key and JWT secret"),
+    field: str = typer.Option(
+        "", "--field", help="Print one raw value for scripts: username|password|api_key|jwt_secret"
+    ),
+) -> None:
+    """Print the admin login (from niyan.yaml, the same source the API uses).
+
+    Values land in your terminal scrollback; clear it if the screen is shared.
+    """
+    repo = _repo()
+    cfg = _load(repo)
+    if field:
+        vals = {
+            "username": cfg.admin_auth.username,
+            "password": cfg.admin_auth.password,
+            "api_key": cfg.proxy.api_keys[0] if cfg.proxy.api_keys else "",
+            "jwt_secret": cfg.admin_auth.jwt_secret,
+        }
+        if field not in vals:
+            console.print(f"[red]unknown field {field}[/red]")
+            raise typer.Exit(1)
+        print(vals[field])
+        return
+    console.print(f"Admin UI user:     {cfg.admin_auth.username}")
+    console.print(f"Admin UI password: {cfg.admin_auth.password}")
+    if all_:
+        console.print(f"Gateway API key:   {cfg.proxy.api_keys[0] if cfg.proxy.api_keys else ''}")
+        console.print(f"JWT secret:        {cfg.admin_auth.jwt_secret}")
+
+
+@secrets_app.command("rotate")
+def secrets_rotate(
+    what: str = typer.Argument(..., help="What to rotate: gateway-key"),
+) -> None:
+    """Rotate a secret in niyan.yaml (the single source). Then run `niyan up`.
+
+    gateway-key: replaces proxy.api_keys with one new key (old keys stop working
+    after `niyan up` recreates the gateway). The new key is not printed; read it
+    with `niyan gateway keys --plain`.
+    """
+    from niyan.secrets_init import _hex, _yaml_set_api_keys
+
+    if what not in ("gateway-key", "gateway-keys"):
+        console.print(f"[red]unknown secret {what!r}; supported: gateway-key[/red]")
+        raise typer.Exit(2)
+    repo = _repo()
+    path = _config_path(repo)
+    text = path.read_bytes().decode("utf-8")
+    write_private(path, _yaml_set_api_keys(text, [f"sk-niyan-{_hex(24)}"]))
+    console.print("Rotated the gateway key in niyan.yaml (not printed; see `niyan gateway keys --plain`).")
+    console.print("Run [bold]niyan up[/bold] so the gateway enforces the new key.")
+
+
 @gateway_app.command("keys")
-def gateway_keys() -> None:
-    """List proxy API keys from config."""
+def gateway_keys(
+    plain: bool = typer.Option(False, "--plain", help="Raw keys, one per line (for scripts / export)"),
+) -> None:
+    """List proxy API keys from config (use as NIYAN_API_KEY / Bearer token)."""
     repo = _repo()
     cfg = _load(repo)
     for k in cfg.proxy.api_keys:
-        console.print(k)
+        if plain:
+            print(k)
+        else:
+            console.print(k, markup=False, highlight=False)
 
 
 if __name__ == "__main__":

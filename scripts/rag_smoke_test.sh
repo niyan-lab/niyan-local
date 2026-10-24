@@ -14,11 +14,13 @@ set -euo pipefail
 
 PROXY_URL="${PROXY_URL:-http://127.0.0.1:4000}"
 API_URL="${API_URL:-http://127.0.0.1:8100}"
-API_KEY="${API_KEY:-sk-niyan-local}"
+API_KEY="${API_KEY:-$(niyan gateway keys --plain 2>/dev/null | head -1)}"
+if [ -z "$API_KEY" ]; then echo "API_KEY empty: export API_KEY or run ./install.sh (niyan gateway keys --plain)" >&2; exit 1; fi
 EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
 EMBED_DIMS="${EMBED_DIMS:-768}"
-ADMIN_USER="${ADMIN_USER:-admin}"
-ADMIN_PASS="${ADMIN_PASS:-niyan}"
+ADMIN_USER="${ADMIN_USER:-$(niyan secrets show --field username 2>/dev/null || echo admin)}"
+ADMIN_PASS="${ADMIN_PASS:-$(niyan secrets show --field password 2>/dev/null)}"
+if [ -z "$ADMIN_PASS" ]; then echo "ADMIN_PASS empty: export ADMIN_PASS or run ./install.sh (niyan secrets show)" >&2; exit 1; fi
 COLLECTION="${COLLECTION:-rag_smoke}"
 DOC_ID="${DOC_ID:-rag-doc-1}"
 DOC_TEXT="${DOC_TEXT:-Niyan is an Anaconda-style SLM stack with local embeddings and a vector database for RAG.}"

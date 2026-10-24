@@ -30,6 +30,7 @@ Assert-Command "docker"
 
 Write-Host "Creating venv …"
 & $python -m venv "$Root\.venv"
+if ($LASTEXITCODE -ne 0) { throw "python -m venv failed (exit $LASTEXITCODE)" }
 
 $pip = Join-Path $Root ".venv\Scripts\pip.exe"
 $niyan = Join-Path $Root ".venv\Scripts\niyan.exe"
@@ -37,8 +38,12 @@ if (-not (Test-Path $pip)) {
     throw "venv pip missing at $pip"
 }
 
-& $pip install -U pip setuptools wheel --quiet
-& $pip install -e "$Root\cli" --quiet
+# Upgrade pip via python -m pip (pip.exe cannot replace itself on Windows).
+$venvPy = Join-Path $Root ".venv\Scripts\python.exe"
+& $venvPy -m pip install -U pip setuptools wheel --quiet
+if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed (exit $LASTEXITCODE)" }
+& $venvPy -m pip install -e "$Root\cli" --quiet
+if ($LASTEXITCODE -ne 0) { throw "pip install of the Niyan CLI failed (exit $LASTEXITCODE)" }
 
 $envExample = Join-Path $Root ".env.example"
 $envDest = Join-Path $Root ".env"
@@ -52,6 +57,30 @@ if ((Test-Path $yamlExample) -and -not (Test-Path $yamlDest)) {
     Copy-Item $yamlExample $yamlDest
 }
 
+# Restrict secret files to the current user BEFORE secrets are written.
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name  # DOMAIN\user
+foreach ($f in @($envDest, $yamlDest)) {
+    if (Test-Path $f) {
+        icacls $f /inheritance:r /grant:r "${identity}:(R,W)" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "icacls failed on $f (exit $LASTEXITCODE)" }
+    }
+}
+
+$env:NIYAN_ROOT = $Root
+$secretsJson = & $niyan secrets init --json
+$secretsRc = $LASTEXITCODE
+$newAdminPw = $false
+try { $report = ($secretsJson | Select-Object -Last 1) | ConvertFrom-Json } catch { $report = $null }
+if ($secretsRc -ne 0 -or -not $report -or -not $report.ok) {
+    $why = if ($report -and $report.error) { $report.error } else { "exit $secretsRc" }
+    throw "niyan secrets init failed; secrets were not changed: $why"
+}
+foreach ($k in @("rotated", "generated", "kept")) {
+    if ($report.$k) { Write-Host ("  {0}: {1}" -f $k, ($report.$k -join ", ")) }
+}
+foreach ($w in $report.warnings) { Write-Warning $w }
+if ($report.generated -contains "admin_auth.password") { $newAdminPw = $true }
+
 $py = Join-Path $Root ".venv\Scripts\python.exe"
 & $py -c @"
 from pathlib import Path
@@ -61,9 +90,11 @@ root = Path(r'$Root')
 generate_litellm_config(load_config(root / 'niyan.yaml'), root)
 print('LiteLLM config generated')
 "@
+if ($LASTEXITCODE -ne 0) { throw "LiteLLM config generation failed (exit $LASTEXITCODE)" }
 
 $env:NIYAN_ROOT = $Root
 & $niyan shell init --shell powershell
+if ($LASTEXITCODE -ne 0) { Write-Warning "could not update the PowerShell profile (exit $LASTEXITCODE)" }
 
 Write-Host ""
 Write-Host "Installed."
@@ -74,6 +105,14 @@ Write-Host "    niyan doctor"
 Write-Host "    niyan up"
 Write-Host "    niyan model pull"
 Write-Host "    niyan embeddings pull"
+Write-Host ""
+if ($newAdminPw) {
+    Write-Host "  Admin UI login (new password; stored in niyan.yaml, owner-only ACL). It is now in"
+    Write-Host "  your console scrollback - clear it on shared screens. Reprint with: niyan secrets show"
+    & $niyan secrets show
+} else {
+    Write-Host "  Existing secrets kept. Admin UI login: niyan secrets show"
+}
 Write-Host ""
 Write-Host "  Uninstall:            .\uninstall.ps1"
 Write-Host "  Repo-local fallback:  .\niyan.cmd <command>"

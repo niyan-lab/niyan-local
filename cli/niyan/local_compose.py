@@ -109,16 +109,6 @@ def guardrails_url(config: NiyanConfig) -> str:
     return "http://nemo-guardrails:8089"
 
 
-def vector_url(config: NiyanConfig) -> str:
-    """Connection URL for the active vector provider (empty when disabled)."""
-    if not config.vector.enabled:
-        return ""
-    if config.vector.provider == VectorProvider.qdrant:
-        return "http://qdrant:6333"
-    db = config.vector.pgvector.database or "niyan_vectors"
-    return f"postgresql://niyan:niyan@postgres:5432/{db}"
-
-
 def resolve_langfuse_host(host: str, profile: Profile) -> str:
     """Map user-facing Langfuse URLs to addresses reachable from Docker containers."""
     h = (host or "").strip().rstrip("/")
@@ -163,7 +153,7 @@ def build_env(repo_root: Path, profile: Profile, config: NiyanConfig) -> dict:
     # Docker Desktop on Windows accepts native paths; prefer resolved absolute path.
     env["NIYAN_ROOT"] = str(repo_root.resolve())
     env["COMPOSE_PROJECT_NAME"] = "niyan"
-    env["LITELLM_MASTER_KEY"] = config.proxy.api_keys[0] if config.proxy.api_keys else "sk-niyan-local"
+    env["LITELLM_MASTER_KEY"] = config.proxy.api_keys[0] if config.proxy.api_keys else ""
     env["GUARDRAILS_PROVIDER"] = config.guardrails.provider.value
     env["GUARDRAILS_URL"] = guardrails_url(config)
     env["GUARDRAILS_ENABLED"] = "true" if config.guardrails.enabled else "false"
@@ -223,7 +213,7 @@ def build_env(repo_root: Path, profile: Profile, config: NiyanConfig) -> dict:
             env.setdefault(key, v.strip())
 
     pg_user = env.get("POSTGRES_USER", "niyan")
-    pg_pass = env.get("POSTGRES_PASSWORD", "niyan")
+    pg_pass = env.get("POSTGRES_PASSWORD", "")
     vector_db = config.vector.pgvector.database or "niyan_vectors"
     env["PGVECTOR_DSN"] = f"postgresql://{pg_user}:{pg_pass}@postgres:5432/{vector_db}"
     return env
@@ -235,21 +225,65 @@ def ensure_litellm_config(repo_root: Path, config: NiyanConfig) -> Path:
     return generate_litellm_config(config, repo_root)
 
 
+# Compose interpolates every ${VAR:?} guard even for `down`/`logs`/`exec`.
+GUARDED_VARS = (
+    "POSTGRES_PASSWORD",
+    "LANGFUSE_NEXTAUTH_SECRET",
+    "LANGFUSE_SALT",
+    "LANGFUSE_ENCRYPTION_KEY",
+    "LITELLM_MASTER_KEY",
+    "NIYAN_ADMIN_PASSWORD",
+    "NIYAN_JWT_SECRET",
+)
+PLACEHOLDER = "__niyan_unused__"
+
+
+def placeholder_env(env: dict) -> dict:
+    """Fill empty guarded vars with a dummy so non-starting commands work."""
+    out = dict(env)
+    for k in GUARDED_VARS:
+        if not (out.get(k) or "").strip():
+            out[k] = PLACEHOLDER
+    return out
+
+
 def run_compose(
     repo_root: Path,
     config: NiyanConfig,
     args: List[str],
     check: bool = True,
+    placeholders: bool = False,
 ) -> subprocess.CompletedProcess:
     profile = detect_profile(config.profile)
     ensure_litellm_config(repo_root, config)
     cmd = compose_cmd(repo_root, profile, config) + args
     env = build_env(repo_root, profile, config)
+    if placeholders:
+        env = placeholder_env(env)
     return subprocess.run(cmd, cwd=str(repo_root), env=env, check=check)
+
+
+class InsecureSecretsError(RuntimeError):
+    pass
+
+
+def assert_secure_env(env: dict) -> None:
+    """Refuse to start with empty / shipped-default secrets unless NIYAN_ALLOW_INSECURE_DEFAULTS=1."""
+    from niyan.secrets_init import check_secrets
+    from niyan.secrets_policy import insecure_allowed
+
+    bad = check_secrets(env)
+    if bad and not insecure_allowed(env):
+        raise InsecureSecretsError(
+            "Refusing to start: empty or default secrets: " + ", ".join(bad)
+            + ". Run `niyan secrets init` (or ./install.sh). For throwaway dev only, set "
+            "NIYAN_ALLOW_INSECURE_DEFAULTS=1."
+        )
 
 
 def stack_up(repo_root: Path, config: NiyanConfig, *, build: bool = False) -> None:
     ensure_litellm_config(repo_root, config)
+    assert_secure_env(build_env(repo_root, detect_profile(config.profile), config))
     args = ["up", "-d", "--remove-orphans"]
     if build:
         args.insert(2, "--build")
@@ -271,7 +305,7 @@ def stack_down(repo_root: Path, config: NiyanConfig, volumes: bool = False) -> N
     args = ["down", "--remove-orphans"]
     if volumes:
         args.append("--volumes")
-    run_compose(repo_root, config, args, check=False)
+    run_compose(repo_root, config, args, check=False, placeholders=True)
 
 
 def stack_ps(repo_root: Path, config: NiyanConfig) -> str:
@@ -288,5 +322,5 @@ def stack_logs(repo_root: Path, config: NiyanConfig, service: Optional[str], fol
     # Don't capture — stream to terminal
     profile = detect_profile(config.profile)
     cmd = compose_cmd(repo_root, profile, config) + args
-    env = build_env(repo_root, profile, config)
+    env = placeholder_env(build_env(repo_root, profile, config))
     subprocess.run(cmd, cwd=str(repo_root), env=env)

@@ -27,7 +27,7 @@ def test_kubernetes_platform_coerced_to_vm_docker(monkeypatch):
 def test_dsn_selects_db_store(monkeypatch):
     monkeypatch.setattr(
         "app.container.settings.niyan_config_dsn",
-        "postgresql://niyan:niyan@postgres:5432/niyan",
+        "postgresql://fake-user:fake-test-password@fake-host:5432/fake-db",
     )
     c = build_container(platform="vm")
     assert isinstance(c.config_store, DbConfigStore)

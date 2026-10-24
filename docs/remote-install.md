@@ -98,7 +98,7 @@ Include:
    niyan doctor
    niyan up
    ```
-4. URLs: Admin http://127.0.0.1:3080 (`admin` / `niyan`) · Gateway http://127.0.0.1:4000  
+4. URLs: Admin http://127.0.0.1:3080 (`admin` / the password the installer printed; it is `admin_auth.password` in `~/.niyan/stack/niyan.yaml`) · Gateway http://127.0.0.1:4000 (key: `proxy.api_keys` in the same file; mirrored to `.env` as `LITELLM_MASTER_KEY`). `niyan.yaml` is the single source; keys are read-only in the Admin UI. Rotate with `niyan secrets rotate gateway-key`, then `niyan up`.  
 5. Mac/Windows: install [Ollama](https://ollama.com) on the host; pull a model (`ollama pull llama3.2:3b`) or use Admin → Models  
 
 ### G. Smoke-test yourself before sending invites

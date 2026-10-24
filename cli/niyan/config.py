@@ -69,7 +69,7 @@ class ModelEntry(BaseModel):
 
 class ProxyConfig(BaseModel):
     port: int = 4000
-    api_keys: List[str] = Field(default_factory=lambda: ["sk-niyan-local"])
+    api_keys: List[str] = Field(default_factory=list)
 
 
 class ObservabilityConfig(BaseModel):
@@ -112,8 +112,8 @@ class OllamaConfig(BaseModel):
 
 class AdminAuthConfig(BaseModel):
     username: str = "admin"
-    password: str = "niyan"
-    jwt_secret: str = "change-me-niyan-dev-secret"
+    password: str = ""
+    jwt_secret: str = ""
 
 
 class EmbeddingsConfig(BaseModel):

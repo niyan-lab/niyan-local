@@ -143,7 +143,7 @@ Client → gateway:4000 /v1/embeddings → litellm:4001 → usually Ollama (nomi
 
 ```http
 POST http://<host>:4000/v1/embeddings
-Authorization: Bearer sk-niyan-local
+Authorization: Bearer $NIYAN_API_KEY
 Content-Type: application/json
 
 {
@@ -183,7 +183,7 @@ POST http://<host>:8100/api/auth/login
 
 {
   "username": "admin",
-  "password": "niyan"
+  "password": "<admin password: niyan secrets show>"
 }
 ```
 
@@ -241,7 +241,7 @@ Qdrant port `6333` may be published for debugging, but direct access bypasses Ni
 
 ```http
 POST http://<host>:4000/v1/embeddings
-Authorization: Bearer sk-niyan-local
+Authorization: Bearer $NIYAN_API_KEY
 
 {
   "model": "nomic-embed-text",
@@ -370,7 +370,7 @@ On **Load Testing**, you pick:
 | Target | `gateway_chat`, `gateway_embeddings`, `gateway_domain`, or `custom` |
 | Model / domain / prompt | What Locust sends |
 | Users / spawn / duration | Locust `-u`, `-r`, `-t` (caps: 50 users, 5–600s) |
-| Bearer token | Usually `sk-niyan-local` (gateway key) |
+| Bearer token | Usually your gateway key (`niyan gateway keys --plain`) |
 
 **Start** calls:
 

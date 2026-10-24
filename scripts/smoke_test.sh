@@ -4,11 +4,13 @@ set -euo pipefail
 
 PROXY_URL="${PROXY_URL:-http://127.0.0.1:4000}"
 API_URL="${API_URL:-http://127.0.0.1:8100}"
-API_KEY="${API_KEY:-sk-niyan-local}"
+API_KEY="${API_KEY:-$(niyan gateway keys --plain 2>/dev/null | head -1)}"
+if [ -z "$API_KEY" ]; then echo "API_KEY empty: export API_KEY or run ./install.sh (niyan gateway keys --plain)" >&2; exit 1; fi
 MODEL="${MODEL:-llama3.2:3b}"
 EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
-ADMIN_USER="${ADMIN_USER:-admin}"
-ADMIN_PASS="${ADMIN_PASS:-niyan}"
+ADMIN_USER="${ADMIN_USER:-$(niyan secrets show --field username 2>/dev/null || echo admin)}"
+ADMIN_PASS="${ADMIN_PASS:-$(niyan secrets show --field password 2>/dev/null)}"
+if [ -z "$ADMIN_PASS" ]; then echo "ADMIN_PASS empty: export ADMIN_PASS or run ./install.sh (niyan secrets show)" >&2; exit 1; fi
 
 echo "==> Health"
 curl -sf "$PROXY_URL/health" | tee /tmp/niyan-health.json

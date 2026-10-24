@@ -10,7 +10,7 @@ const STORAGE_KEY = "praxis-api-settings";
 export function defaultConnection(): ConnectionConfig {
   return {
     gatewayUrl: import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4000",
-    apiKey: import.meta.env.VITE_API_KEY || "sk-niyan-local",
+    apiKey: import.meta.env.VITE_API_KEY || "",
     domain: import.meta.env.VITE_DOMAIN || "research",
     model: import.meta.env.VITE_MODEL || "research",
   };

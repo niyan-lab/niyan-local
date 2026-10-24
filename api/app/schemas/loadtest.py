@@ -39,7 +39,7 @@ class LoadTestCreate(BaseModel):
     body: Optional[Any] = None
     allow_internal_urls: bool = False
     # Auth + load params
-    auth_bearer: Optional[str] = "sk-niyan-local"
+    auth_bearer: Optional[str] = None
     host: Optional[str] = None
     users: int = Field(default=5, ge=1, le=50)
     spawn_rate: float = Field(default=1.0, gt=0, le=50)

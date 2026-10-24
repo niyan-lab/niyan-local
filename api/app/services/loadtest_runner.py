@@ -52,8 +52,26 @@ def run_dir(run_id: str) -> Path:
 
 
 def _write_json(path: Path, data: Any) -> None:
+    from app.services.config_secrets import write_private
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2))
+    write_private(path, json.dumps(data, indent=2))
+
+
+_SECRET_HEADER_NAMES = {"authorization", "x-api-key", "api-key", "proxy-authorization"}
+
+
+def redact_job(job: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Copy of a job dict safe to persist in run.json / return from the API."""
+    if not isinstance(job, dict):
+        return job
+    out = dict(job)
+    if out.get("auth_bearer"):
+        out["auth_bearer"] = "***"
+    headers = out.get("headers")
+    if isinstance(headers, dict):
+        out["headers"] = {k: ("***" if str(k).lower() in _SECRET_HEADER_NAMES else v) for k, v in headers.items()}
+    return out
 
 
 def _read_json(path: Path) -> Optional[Dict[str, Any]]:
@@ -181,12 +199,20 @@ def _build_job(body: LoadTestCreate) -> Dict[str, Any]:
 
     job: Dict[str, Any] = {
         "target_type": body.target_type.value,
-        "auth_bearer": (body.auth_bearer or "sk-niyan-local").strip(),
+        # Default: Locust reads the gateway key from its container env
+        # (NIYAN_LOADTEST_BEARER), so the key is never written to disk.
+        "auth_bearer": "",
+        "use_gateway_key": True,
         "host": (body.host or settings.gateway_url).rstrip("/"),
         "users": users,
         "spawn_rate": spawn,
         "duration_sec": duration,
     }
+
+    custom_bearer = (body.auth_bearer or "").strip()
+    if custom_bearer and custom_bearer != "***" and custom_bearer != (settings.litellm_master_key or ""):
+        job["auth_bearer"] = custom_bearer
+        job["use_gateway_key"] = False
 
     if body.target_type in {LoadTestTarget.gateway_chat, LoadTestTarget.gateway_domain}:
         job["model"] = (body.model or ("finance" if body.target_type == LoadTestTarget.gateway_domain else "llama3.2:3b")).strip()
@@ -306,7 +332,7 @@ def get_run(run_id: str) -> Optional[LoadTestRun]:
         started_at=meta.get("started_at"),
         finished_at=meta.get("finished_at"),
         error=meta.get("error"),
-        job=meta.get("job") or {},
+        job=redact_job(meta.get("job")) or {},
         progress=progress,
         summary=summary,
         cost_warning=meta.get("cost_warning"),
@@ -340,7 +366,7 @@ def create_and_start(body: LoadTestCreate) -> LoadTestRun:
             "started_at": None,
             "finished_at": None,
             "error": None,
-            "job": job,
+            "job": redact_job(job),
             "cost_warning": warning,
         }
         _write_json(d / "run.json", meta)
@@ -383,7 +409,7 @@ def create_and_start(body: LoadTestCreate) -> LoadTestRun:
         target_type=LoadTestTarget(meta["target_type"]),
         created_at=meta["created_at"],
         started_at=meta.get("started_at"),
-        job=job,
+        job=redact_job(job),
         cost_warning=warning,
         artifacts=_artifacts(d),
     )
@@ -542,7 +568,7 @@ def _finalize_summary(run_id: str, *, status: LoadTestStatus, force: bool = Fals
         "id": run_id,
         "status": status.value,
         "finished_at": meta.get("finished_at") or _now_iso(),
-        "job": meta.get("job") or {},
+        "job": redact_job(meta.get("job")) or {},
         "metrics": metrics,
     }
     _write_json(summary_path, summary)

@@ -25,26 +25,54 @@ if (-not $Yes) {
     }
 }
 
+$venv = Join-Path $Root ".venv"
 $niyan = Join-Path $Root ".venv\Scripts\niyan.exe"
-if (Test-Path $niyan) {
-    $args = @("uninstall", "--yes")
-    if ($Volumes) { $args += "--volumes" }
-    if ($KeepConfig) { $args += "--keep-config" }
-    & $niyan @args
-    exit $LASTEXITCODE
+if ((Test-Path $niyan) -and ($env:NIYAN_UNINSTALL_SKIP_CLI -ne "1")) {
+    $cliArgs = @("uninstall", "--yes")
+    if ($Volumes) { $cliArgs += "--volumes" }
+    if ($KeepConfig) { $cliArgs += "--keep-config" }
+    & $niyan @cliArgs
+    if ($LASTEXITCODE -eq 0) {
+        # The CLI cannot delete its own locked venv on Windows; do it now that it exited.
+        if (Test-Path $venv) { Remove-Item -Recurse -Force $venv }
+        exit 0
+    }
+    Write-Warning "CLI failed (exit $LASTEXITCODE) - falling back to manual cleanup"
+} else {
+    Write-Host "CLI venv missing (or skipped) - falling back to Compose + shell cleanup"
 }
 
-Write-Host "CLI venv missing — falling back to Compose + shell cleanup"
-
+$fallbackRc = 0
 if (Get-Command docker -ErrorAction SilentlyContinue) {
-    $compose = @("docker", "compose", "--project-name", "niyan", "-f", "$Root\deploy\docker-compose.yml")
+    $composeArgs = @("compose", "--project-name", "niyan", "-f", "$Root\deploy\docker-compose.yml")
     $hostOverlay = Join-Path $Root "deploy\docker-compose.host-ollama.yml"
-    if (Test-Path $hostOverlay) {
-        $compose += @("-f", $hostOverlay)
+    if (Test-Path $hostOverlay) { $composeArgs += @("-f", $hostOverlay) }
+    $envFile = Join-Path $Root ".env"
+    $envText = ""
+    if (Test-Path $envFile) {
+        $composeArgs += @("--env-file", $envFile)
+        $envText = Get-Content -Raw $envFile
     }
+    foreach ($p in @("ollama", "obs", "guard-llm", "guard-nemo", "admin", "vector-qdrant", "vector-pg")) {
+        $composeArgs += @("--profile", $p)
+    }
+    # `down` still interpolates ${VAR:?} guards; dummy values for missing ones (nothing starts).
+    foreach ($v in @("POSTGRES_PASSWORD", "LANGFUSE_NEXTAUTH_SECRET", "LANGFUSE_SALT", "LANGFUSE_ENCRYPTION_KEY",
+                     "LITELLM_MASTER_KEY", "NIYAN_ADMIN_PASSWORD", "NIYAN_JWT_SECRET")) {
+        if (-not [Environment]::GetEnvironmentVariable($v) -and ($envText -notmatch "(?m)^$v=.+")) {
+            Set-Item -Path "env:$v" -Value "__niyan_unused__"
+        }
+    }
+    $env:NIYAN_ROOT = $Root
     $down = @("down", "--remove-orphans")
     if ($Volumes) { $down += "--volumes" }
-    & $compose[0] $compose[1..($compose.Length-1)] @down
+    & docker @composeArgs @down
+    if ($LASTEXITCODE -ne 0) {
+        $fallbackRc = 1
+        Write-Error "docker compose down failed (is Docker running?). Re-run .\uninstall.ps1 once Docker is up." -ErrorAction Continue
+    }
+} else {
+    Write-Warning "docker not found - skipping container/volume cleanup"
 }
 
 $env:NIYAN_ROOT = $Root
@@ -55,7 +83,6 @@ if ($py -and (Test-Path (Join-Path $Root "cli\niyan\shell_init.py"))) {
     & $py.Source -c "from pathlib import Path; from niyan.shell_init import init_shell; init_shell(Path(r'$Root'), reverse=True)"
 }
 
-$venv = Join-Path $Root ".venv"
 if (Test-Path $venv) { Remove-Item -Recurse -Force $venv }
 
 if (-not $KeepConfig) {
@@ -68,4 +95,8 @@ if (-not $KeepConfig) {
 $generated = Join-Path $Root "services\litellm\config.generated.yaml"
 if (Test-Path $generated) { Remove-Item -Force $generated }
 
+if ($fallbackRc -ne 0) {
+    Write-Host "Uninstall finished WITH ERRORS (see above)."
+    exit $fallbackRc
+}
 Write-Host "Uninstalled. Reinstall with .\install.ps1"

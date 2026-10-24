@@ -49,23 +49,49 @@ if [[ "$YES" != "1" ]]; then
 fi
 
 NIYAN="$ROOT/.venv/bin/niyan"
-if [[ -x "$NIYAN" ]]; then
+# NIYAN_UNINSTALL_SKIP_CLI=1 forces the fallback path (used by tests).
+if [[ -x "$NIYAN" && "${NIYAN_UNINSTALL_SKIP_CLI:-0}" != "1" ]]; then
   args=(uninstall --yes)
-  [[ "$VOLUMES" == "1" ]] && args+=(--volumes)
-  [[ "$KEEP_CONFIG" == "1" ]] && args+=(--keep-config)
-  "$NIYAN" "${args[@]}"
-  exit 0
+  if [[ "$VOLUMES" == "1" ]]; then args+=(--volumes); fi
+  if [[ "$KEEP_CONFIG" == "1" ]]; then args+=(--keep-config); fi
+  if "$NIYAN" "${args[@]}"; then
+    exit 0
+  fi
+  echo "CLI failed — falling back to manual cleanup" >&2
+else
+  echo "CLI venv missing (or skipped) — falling back to Compose + shell cleanup"
 fi
 
-echo "CLI venv missing — falling back to Compose + shell cleanup"
-
+FALLBACK_RC=0
 if command -v docker >/dev/null 2>&1 && [[ -f "$ROOT/deploy/docker-compose.yml" ]]; then
   compose=(docker compose --project-name niyan -f "$ROOT/deploy/docker-compose.yml")
-  [[ -f "$ROOT/deploy/docker-compose.host-ollama.yml" ]] && \
+  if [[ -f "$ROOT/deploy/docker-compose.host-ollama.yml" ]]; then
     compose+=(-f "$ROOT/deploy/docker-compose.host-ollama.yml")
+  fi
+  if [[ -f "$ROOT/.env" ]]; then
+    compose+=(--env-file "$ROOT/.env")
+  fi
+  # Every profile, so --volumes really removes every volume.
+  compose+=(--profile ollama --profile obs --profile guard-llm --profile guard-nemo --profile admin \
+    --profile vector-qdrant --profile vector-pg)
+  # `down` still interpolates ${VAR:?} guards: give missing ones a dummy value
+  # (only used for interpolation; nothing is started).
+  for v in POSTGRES_PASSWORD LANGFUSE_NEXTAUTH_SECRET LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY \
+    LITELLM_MASTER_KEY NIYAN_ADMIN_PASSWORD NIYAN_JWT_SECRET; do
+    if [[ -z "${!v:-}" ]] && ! grep -Eq "^${v}=.+" "$ROOT/.env" 2>/dev/null; then
+      export "$v=__niyan_unused__"
+    fi
+  done
+  export NIYAN_ROOT="$ROOT"
   down_args=(down --remove-orphans)
-  [[ "$VOLUMES" == "1" ]] && down_args+=(--volumes)
-  "${compose[@]}" "${down_args[@]}" || true
+  if [[ "$VOLUMES" == "1" ]]; then down_args+=(--volumes); fi
+  if ! "${compose[@]}" "${down_args[@]}"; then
+    FALLBACK_RC=1
+    echo "error: docker compose down failed (is Docker running?). Containers/volumes may remain;" >&2
+    echo "       re-run ./uninstall.sh once Docker is up." >&2
+  fi
+else
+  echo "warning: docker not found — skipping container/volume cleanup" >&2
 fi
 
 python3 - "$ROOT" <<'PY'
@@ -92,4 +118,8 @@ if [[ "$KEEP_CONFIG" != "1" ]]; then
 fi
 rm -f "$ROOT/services/litellm/config.generated.yaml"
 
+if [[ "$FALLBACK_RC" != "0" ]]; then
+  echo "Uninstall finished WITH ERRORS (see above)." >&2
+  exit "$FALLBACK_RC"
+fi
 echo "Uninstalled. Reinstall with ./install.sh"

@@ -22,8 +22,36 @@ fi
 python3 -m venv "$ROOT/.venv"
 "$ROOT/.venv/bin/pip" install -U pip setuptools wheel --quiet
 "$ROOT/.venv/bin/pip" install -e "$ROOT/cli" --quiet
-cp -n "$ROOT/.env.example" "$ROOT/.env" 2>/dev/null || true
-cp -n "$ROOT/configs/niyan.example.yaml" "$ROOT/niyan.yaml" 2>/dev/null || true
+OLD_UMASK="$(umask)"
+umask 077
+[ -f "$ROOT/.env" ] || cp "$ROOT/.env.example" "$ROOT/.env"
+[ -f "$ROOT/niyan.yaml" ] || cp "$ROOT/configs/niyan.example.yaml" "$ROOT/niyan.yaml"
+umask "$OLD_UMASK"
+# Secrets: generate / migrate in place. Fails closed (exit 2, nothing changed)
+# when Docker is unreachable and a data-bound secret would need work.
+set +e
+SECRETS_JSON="$(NIYAN_ROOT="$ROOT" "$ROOT/.venv/bin/niyan" secrets init --json)"
+SECRETS_RC=$?
+set -e
+NEW_ADMIN_PW="$(printf '%s' "$SECRETS_JSON" | "$ROOT/.venv/bin/python" -c '
+import json, sys
+try:
+    r = json.loads(sys.stdin.read().strip().splitlines()[-1])
+except Exception:
+    print("error: could not parse `niyan secrets init --json` output", file=sys.stderr); sys.exit(3)
+if not r.get("ok"):
+    print("error: " + r.get("error", "secrets init failed"), file=sys.stderr); sys.exit(2)
+for k in ("rotated", "generated", "kept"):
+    if r.get(k):
+        print("  %s: %s" % (k, ", ".join(r[k])), file=sys.stderr)
+for w in r.get("warnings", []):
+    print("  WARNING: " + w, file=sys.stderr)
+print("1" if "admin_auth.password" in r.get("generated", []) else "0")
+')" || { echo "Install aborted: secrets were not changed." >&2; exit 2; }
+if [ "$SECRETS_RC" -ne 0 ]; then
+  echo "Install aborted (niyan secrets init exit $SECRETS_RC)." >&2
+  exit "$SECRETS_RC"
+fi
 # Generate LiteLLM routes from niyan.yaml (required Compose mount)
 "$ROOT/.venv/bin/python" - <<PY
 from pathlib import Path
@@ -39,6 +67,7 @@ PY
 cat > "$ROOT/niyan.sh" <<'EOF'
 #!/usr/bin/env bash
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+export NIYAN_ROOT="$ROOT"
 exec "$ROOT/.venv/bin/niyan" "$@"
 EOF
 chmod +x "$ROOT/niyan.sh"
@@ -61,6 +90,14 @@ echo
 echo "    niyan doctor"
 echo "    niyan up"
 echo "    niyan status"
+echo
+if [ "$NEW_ADMIN_PW" = "1" ]; then
+  echo "  Admin UI login (new password; stored in niyan.yaml, chmod 600; reprint any time"
+  echo "  with: niyan secrets show). It is now in your terminal scrollback — clear it on shared screens:"
+  NIYAN_ROOT="$ROOT" "$ROOT/.venv/bin/niyan" secrets show | sed 's/^/    /'
+else
+  echo "  Existing secrets kept. Show the admin login with: niyan secrets show"
+fi
 echo
 echo "  Uninstall:           ./uninstall.sh"
 echo "  Repo-local fallback: ./niyan.sh <command>"

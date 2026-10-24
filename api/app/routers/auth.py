@@ -11,7 +11,11 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest) -> TokenResponse:
-    if body.username != settings.niyan_admin_username or body.password != settings.niyan_admin_password:
+    from app.secrets_policy import ct_equal, is_insecure
+
+    user_ok = ct_equal(body.username, settings.niyan_admin_username)
+    pass_ok = ct_equal(body.password, settings.niyan_admin_password)
+    if not (user_ok & pass_ok) or is_insecure(settings.niyan_admin_password):
         from fastapi import HTTPException
 
         raise HTTPException(status_code=401, detail="Invalid credentials")

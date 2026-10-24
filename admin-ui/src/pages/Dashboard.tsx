@@ -1888,7 +1888,7 @@ export default function Dashboard() {
               <pre className="code-block">
                 <code>
 {`curl ${GATEWAY_ORIGIN}/v1/chat/completions \\
-  -H "Authorization: Bearer sk-niyan-local" \\
+  -H "Authorization: Bearer <your-api-key>" \\
   -H "X-Niyan-Application: Enterprise-Functions" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"finance","messages":[{"role":"user","content":"hi"}]}'`}

@@ -18,7 +18,7 @@ It wires together:
 ## Prerequisites
 
 - Docker + Docker Compose v2 (Docker Desktop on macOS / Windows)
-- Python 3.9+
+- Python 3.9+ (on Linux, also install the `python3-venv` package)
 - **macOS / Windows:** [Ollama](https://ollama.com) installed and running on the **host** (Metal on Mac; Docker Desktop uses `host.docker.internal`)
 - **Linux:** Ollama runs in Compose (`ollama` profile), unless you override `ollama.host`
 - **Windows alternative:** WSL2 Ubuntu + Docker Desktop WSL integration, then use `./install.sh` (Linux profiles)
@@ -95,7 +95,7 @@ Embeddings stay on **local Ollama** (`nomic-embed-text`). LiteLLM routes are wri
 ### Setup (Admin UI — recommended)
 
 1. `niyan up`
-2. Open **Admin UI**: [http://127.0.0.1:3080](http://127.0.0.1:3080) (`admin` / `niyan`)
+2. Open **Admin UI**: [http://127.0.0.1:3080](http://127.0.0.1:3080) (`admin` / password from `niyan secrets show`)
 3. **Providers** — paste your cloud API key and enable the provider:
    - **OpenAI** — [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
    - **Google Gemini** — [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
@@ -128,7 +128,7 @@ niyan up
 
 # 5) Confirm models are registered
 curl -s http://127.0.0.1:4000/v1/models \
-  -H "Authorization: Bearer sk-niyan-local" \
+  -H "Authorization: Bearer $NIYAN_API_KEY" \
   | python3 -m json.tool
 ```
 
@@ -136,13 +136,13 @@ Disable: `niyan model disable gpt-4o-mini`
 
 ### Usage (same gateway as local models)
 
-Requests use the **Niyan gateway API key** (`Authorization: Bearer sk-niyan-local` by default). LiteLLM calls OpenAI/Gemini with **your** provider key from `niyan.yaml`.
+Requests use the **Niyan gateway API key** (`Authorization: Bearer $NIYAN_API_KEY` by default). LiteLLM calls OpenAI/Gemini with **your** provider key from `niyan.yaml`.
 
 **Gemini:**
 
 ```bash
 curl http://127.0.0.1:4000/v1/chat/completions \
-  -H "Authorization: Bearer sk-niyan-local" \
+  -H "Authorization: Bearer $NIYAN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemini-2.5-flash",
@@ -154,7 +154,7 @@ curl http://127.0.0.1:4000/v1/chat/completions \
 
 ```bash
 curl http://127.0.0.1:4000/v1/chat/completions \
-  -H "Authorization: Bearer sk-niyan-local" \
+  -H "Authorization: Bearer $NIYAN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4o-mini",
@@ -162,7 +162,7 @@ curl http://127.0.0.1:4000/v1/chat/completions \
   }'
 ```
 
-Swagger: [http://127.0.0.1:4000/docs](http://127.0.0.1:4000/docs) — Authorize with `sk-niyan-local`.
+Swagger: [http://127.0.0.1:4000/docs](http://127.0.0.1:4000/docs) — Authorize with your gateway key (`niyan gateway keys`).
 
 Responses may include a `niyan` block with tokens and estimated API cost for proprietary calls.
 
@@ -172,7 +172,7 @@ Send a domain id as `model` (`finance`, `marketing`, `sales`, `research`, `summa
 
 ```bash
 curl http://127.0.0.1:4000/v1/chat/completions \
-  -H "Authorization: Bearer sk-niyan-local" \
+  -H "Authorization: Bearer $NIYAN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "summary",
@@ -238,7 +238,7 @@ Intelligent local↔cloud routing is planned later.
 
 ```bash
 curl http://127.0.0.1:4000/v1/chat/completions \
-  -H "Authorization: Bearer sk-niyan-local" \
+  -H "Authorization: Bearer $NIYAN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model":"llama3.2:3b","messages":[{"role":"user","content":"Hello"}]}'
 ```
@@ -247,7 +247,7 @@ curl http://127.0.0.1:4000/v1/chat/completions \
 
 ```bash
 curl http://127.0.0.1:4000/v1/embeddings \
-  -H "Authorization: Bearer sk-niyan-local" \
+  -H "Authorization: Bearer $NIYAN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model":"nomic-embed-text","input":"What is Niyan?"}'
 ```
@@ -267,7 +267,7 @@ Then create a collection, upsert, and search via the control plane (admin JWT):
 # login
 TOKEN=$(curl -sf http://127.0.0.1:8100/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"niyan"}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+  -d '{"username":"admin","password":"'"$NIYAN_ADMIN_PASSWORD"'"}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 
 curl -sf http://127.0.0.1:8100/api/vector/collections \
   -H "Authorization: Bearer $TOKEN" \
@@ -285,7 +285,7 @@ Use gateway embeddings to produce vectors, then `POST /api/vector/upsert` and `P
 | OpenAI embeddings | http://127.0.0.1:4000/v1/embeddings |
 | **Proxy Swagger (try requests)** | **http://127.0.0.1:4000/docs** |
 | Control plane docs | http://127.0.0.1:8100/docs |
-| Admin console | http://127.0.0.1:3080 (admin / niyan) |
+| Admin console | http://127.0.0.1:3080 (admin / `niyan secrets show`) |
 | Admin → Providers / Models | http://127.0.0.1:3080 (OpenAI / Gemini / Anthropic keys + enable) |
 | Langfuse (bundled) | http://127.0.0.1:3100 |
 | Qdrant (when enabled) | http://127.0.0.1:6333 |
