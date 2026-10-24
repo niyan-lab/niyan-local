@@ -1,0 +1,37 @@
+name: shell-lint
+
+on:
+  push:
+    branches: [dev, main]
+    paths: ["**/*.sh", ".github/workflows/shell-lint.yml"]
+  pull_request:
+    paths: ["**/*.sh", ".github/workflows/shell-lint.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck (warnings and above)
+        run: |
+          shellcheck --version
+          git ls-files -z '*.sh' | xargs -0 shellcheck -S warning
+
+  bash32:
+    # macOS ships bash 3.2; installers must parse and run under it.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check under /bin/bash 3.2
+        run: |
+          /bin/bash --version | head -1
+          fail=0
+          while IFS= read -r -d '' f; do
+            /bin/bash -n "$f" || { echo "::error file=$f::bash 3.2 parse failure"; fail=1; }
+          done < <(git ls-files -z '*.sh')
+          exit $fail
+      - name: uninstall.sh --help runs under bash 3.2
+        run: /bin/bash ./uninstall.sh --help

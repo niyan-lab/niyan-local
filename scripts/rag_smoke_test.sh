@@ -80,6 +80,7 @@ green "collection ready"
 
 step "5/6 Embed document + query ($EMBED_MODEL)"
 embed_one() {
+  # shellcheck disable=SC2034 # label kept for call-site readability
   local label="$1"
   local text="$2"
   local out="$3"
