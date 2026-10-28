@@ -1,0 +1,23 @@
+# Minimal stack for tests/e2e/login_e2e.sh: admin-ui nginx + niyan-api only.
+# Run under its own compose project with non-default ports; never touches the
+# main niyan stack.
+name: ${E2E_PROJECT:-niyan-login-e2e}
+services:
+  niyan-api:
+    build: ../../api
+    environment:
+      NIYAN_ADMIN_USERNAME: admin
+      NIYAN_ADMIN_PASSWORD: ${E2E_ADMIN_PASSWORD:?set by login_e2e.sh}
+      NIYAN_JWT_SECRET: ${E2E_JWT_SECRET:?set by login_e2e.sh}
+      LITELLM_MASTER_KEY: ${E2E_LITELLM_KEY:?set by login_e2e.sh}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8100/api/health"]
+      interval: 2s
+      retries: 30
+  admin-ui:
+    build: ../../admin-ui
+    depends_on:
+      niyan-api:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${E2E_UI_PORT:-13080}:80"

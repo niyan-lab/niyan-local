@@ -1,0 +1,22 @@
+name: login-e2e
+
+# Builds admin-ui + niyan-api and logs in through the nginx /api proxy
+# (200 / 401 / 429). See tests/e2e/login_e2e.sh.
+on:
+  push:
+    branches: [dev, main]
+    paths: ["api/**", "admin-ui/**", "tests/e2e/**", ".github/workflows/login-e2e.yml"]
+  pull_request:
+    paths: ["api/**", "admin-ui/**", "tests/e2e/**", ".github/workflows/login-e2e.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  login:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login through admin-ui nginx
+        run: tests/e2e/login_e2e.sh
