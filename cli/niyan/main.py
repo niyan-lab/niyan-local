@@ -92,6 +92,13 @@ def _api(repo: Path, login: bool = False) -> NiyanApiClient:
     return client
 
 
+def _warn_admin_drift(repo: Path, cfg) -> None:
+    from niyan.drift import DRIFT_WARNING, admin_password_drift
+
+    if admin_password_drift(repo, cfg.admin_auth.password):
+        console.print(DRIFT_WARNING)
+
+
 @app.command()
 def version() -> None:
     """Print CLI version."""
@@ -214,6 +221,7 @@ def up(
     """Bring up the Niyan stack via Docker Compose."""
     repo = _repo()
     cfg = _load(repo)
+    _warn_admin_drift(repo, cfg)
     profile = detect_profile(cfg.profile)
     console.print(f"Starting Niyan with profile [cyan]{profile.value}[/cyan] …")
     if build:
@@ -324,6 +332,7 @@ def status() -> None:
     """Show service health (API if up, else compose ps)."""
     repo = _repo()
     cfg = _load(repo)
+    _warn_admin_drift(repo, cfg)
     client = _api(repo, login=True)
     if client.healthy():
         try:
