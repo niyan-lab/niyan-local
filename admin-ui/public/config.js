@@ -1,6 +1,4 @@
-// Default runtime config baked into the image. Intentionally sets NO apiBaseUrl
-// so VM/docker-compose and local dev fall back to the build-time VITE_API_URL.
-// On Kubernetes this file is replaced by a ConfigMap mount (admin-ui-config)
-// that sets apiBaseUrl from the chart's ingress host — see
-// deploy/helm/niyan/templates/admin-ui-config.yaml.
-window.__NIYAN_CONFIG__ = {};
+// Same-origin console. apiBaseUrl "" makes the browser call /api on whatever
+// host opened this page; nginx proxies that to niyan-api. Replace this file
+// only when the API is served from a different host.
+window.__NIYAN_CONFIG__ = { apiBaseUrl: "" };

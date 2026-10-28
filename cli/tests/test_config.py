@@ -22,6 +22,27 @@ def test_load_example_config():
     assert cfg.vector.provider.value == "qdrant"
 
 
+def test_build_env_allows_admin_ui_origins(monkeypatch):
+    from niyan.local_compose import build_env
+
+    monkeypatch.delenv("NIYAN_CORS_ORIGINS", raising=False)
+    root = find_repo_root()
+    cfg = load_config(root / "configs" / "niyan.example.yaml")
+    env = build_env(root, Profile.mac, cfg)
+    assert env["NIYAN_CORS_ORIGINS"] == "http://localhost:3080,http://127.0.0.1:3080"
+    cfg.admin.port = 3090
+    env = build_env(root, Profile.mac, cfg)
+    assert env["NIYAN_CORS_ORIGINS"] == "http://localhost:3090,http://127.0.0.1:3090"
+
+
+def test_admin_ui_does_not_call_api_cross_origin():
+    root = find_repo_root()
+    compose = (root / "deploy" / "docker-compose.yml").read_text()
+    assert "VITE_API_URL:" not in compose
+    config_js = (root / "admin-ui" / "public" / "config.js").read_text()
+    assert 'apiBaseUrl: ""' in config_js
+
+
 def test_compose_includes_profiles():
     root = find_repo_root()
     cfg = load_config(root / "configs" / "niyan.example.yaml")

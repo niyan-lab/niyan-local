@@ -216,6 +216,11 @@ def build_env(repo_root: Path, profile: Profile, config: NiyanConfig) -> dict:
     pg_pass = env.get("POSTGRES_PASSWORD", "")
     vector_db = config.vector.pgvector.database or "niyan_vectors"
     env["PGVECTOR_DSN"] = f"postgresql://{pg_user}:{pg_pass}@postgres:5432/{vector_db}"
+    # Admin UI (:3080) calls the API (:8100) from the browser. Without an
+    # explicit allow-list the login preflight is rejected.
+    if not (env.get("NIYAN_CORS_ORIGINS") or "").strip():
+        port = config.admin.port
+        env["NIYAN_CORS_ORIGINS"] = f"http://localhost:{port},http://127.0.0.1:{port}"
     return env
 
 

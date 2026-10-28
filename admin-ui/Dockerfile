@@ -1,6 +1,8 @@
 FROM node:20-alpine AS build
 WORKDIR /app
-ARG VITE_API_URL=http://localhost:8100
+# Empty: the browser calls /api on the console origin. nginx proxies that to niyan-api.
+# Set a URL only when this image is served somewhere that cannot proxy /api.
+ARG VITE_API_URL=
 ENV VITE_API_URL=$VITE_API_URL
 ARG VITE_GATEWAY_URL=http://localhost:4000
 ENV VITE_GATEWAY_URL=$VITE_GATEWAY_URL

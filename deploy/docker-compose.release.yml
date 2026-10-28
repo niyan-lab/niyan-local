@@ -213,6 +213,7 @@ services:
       REDIS_PORT: "6379"
       NIYAN_ADMIN_USERNAME: ${NIYAN_ADMIN_USERNAME:-admin}
       NIYAN_ADMIN_PASSWORD: ${NIYAN_ADMIN_PASSWORD:?run ./install.sh or niyan secrets init}
+      NIYAN_CORS_ORIGINS: ${NIYAN_CORS_ORIGINS:-http://localhost:3080,http://127.0.0.1:3080}
       NIYAN_JWT_SECRET: ${NIYAN_JWT_SECRET:?run ./install.sh or niyan secrets init}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
       LITELLM_URL: http://litellm:4001

@@ -215,6 +215,7 @@ services:
       REDIS_PORT: "6379"
       NIYAN_ADMIN_USERNAME: ${NIYAN_ADMIN_USERNAME:-admin}
       NIYAN_ADMIN_PASSWORD: ${NIYAN_ADMIN_PASSWORD:?run ./install.sh or niyan secrets init}
+      NIYAN_CORS_ORIGINS: ${NIYAN_CORS_ORIGINS:-http://localhost:3080,http://127.0.0.1:3080}
       NIYAN_ALLOW_INSECURE_DEFAULTS: ${NIYAN_ALLOW_INSECURE_DEFAULTS:-0}
       NIYAN_JWT_SECRET: ${NIYAN_JWT_SECRET:?run ./install.sh or niyan secrets init}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
@@ -262,7 +263,6 @@ services:
     build:
       context: ../admin-ui
       args:
-        VITE_API_URL: http://localhost:8100
         VITE_GATEWAY_URL: http://localhost:4000
     ports:
       - "${ADMIN_PORT:-3080}:80"
