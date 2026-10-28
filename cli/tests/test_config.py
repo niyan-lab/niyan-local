@@ -41,6 +41,10 @@ def test_admin_ui_does_not_call_api_cross_origin():
     assert "VITE_API_URL:" not in compose
     config_js = (root / "admin-ui" / "public" / "config.js").read_text()
     assert 'apiBaseUrl: ""' in config_js
+    # The API base is set only by config.js; no dead build-time knob.
+    ui = root / "admin-ui"
+    for rel in ("src/api/client.ts", "src/vite-env.d.ts", "Dockerfile", ".env.example"):
+        assert "VITE_API_URL" not in (ui / rel).read_text(), rel
 
 
 def test_compose_includes_profiles():

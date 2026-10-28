@@ -1,23 +1,21 @@
-// Runtime config (window.__NIYAN_CONFIG__) may be injected via /config.js.
-// On Compose, public/config.js is empty and build-time VITE_* env wins.
-//
-// Resolution order per URL:
-//   1. runtime config      (optional /config.js)
-//   2. build-time Vite env (VM / docker-compose)
-//   3. "" — callers supply their own loopback default
+// Runtime config comes from /config.js (window.__NIYAN_CONFIG__). It is the
+// only way to set the API base URL:
+//   - Compose / VM: the image ships public/config.js with apiBaseUrl "", so the
+//     browser calls /api on the console origin and admin-ui nginx proxies it
+//     to niyan-api:8100.
+//   - Kubernetes (niyan-complete): the Helm chart mounts a ConfigMap over
+//     config.js with the ingress URL (deploy/helm/niyan/templates/admin-ui-config.yaml).
+//   - `npm run dev`: vite.config.ts proxies /api to 127.0.0.1:8100.
+// There is no build-time API URL; to point at another host, replace config.js.
 declare global {
   interface Window {
     __NIYAN_CONFIG__?: { apiBaseUrl?: string; gatewayBaseUrl?: string };
   }
 }
 
-// apiBaseUrl may legitimately be "" (same-origin/relative), so the check is
-// `typeof === "string"`, not truthiness.
+// "" (same-origin) is the normal value, so only a non-string falls back.
 const RUNTIME_API_URL = window.__NIYAN_CONFIG__?.apiBaseUrl;
-export const API_BASE_URL =
-  typeof RUNTIME_API_URL === "string"
-    ? RUNTIME_API_URL
-    : import.meta.env.VITE_API_URL || "";
+export const API_BASE_URL = typeof RUNTIME_API_URL === "string" ? RUNTIME_API_URL : "";
 
 // gatewayBaseUrl is different: "" means "not configured" and falls through,
 // because a relative gateway URL would produce a curl snippet the user cannot

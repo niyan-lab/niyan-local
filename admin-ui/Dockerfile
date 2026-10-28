@@ -1,9 +1,8 @@
 FROM node:20-alpine AS build
 WORKDIR /app
-# Empty: the browser calls /api on the console origin. nginx proxies that to niyan-api.
-# Set a URL only when this image is served somewhere that cannot proxy /api.
-ARG VITE_API_URL=
-ENV VITE_API_URL=$VITE_API_URL
+# No API URL is baked in: public/config.js (apiBaseUrl "") makes the browser
+# call /api on the console origin, and nginx.conf proxies that to niyan-api.
+# Helm replaces config.js via a ConfigMap. Only the gateway URL is build-time.
 ARG VITE_GATEWAY_URL=http://localhost:4000
 ENV VITE_GATEWAY_URL=$VITE_GATEWAY_URL
 COPY package.json ./

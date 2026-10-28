@@ -302,7 +302,7 @@ embed query → vector search → build context → chat
 
 ## Dashboard data sources
 
-Browser loads UI on `:3080`, then calls **`http://localhost:8100`** directly (`VITE_API_URL`). Nginx only serves the SPA — it does **not** proxy `/api`.
+Browser loads UI on `:3080` and calls `/api` on the same origin; admin-ui nginx proxies `/api/` to `niyan-api:8100`. The API base comes from `config.js` (`apiBaseUrl: ""`; Helm mounts its own), not a build arg.
 
 `GET /api/dashboard` aggregates:
 
@@ -605,10 +605,10 @@ React SPA on `:3080` (Nginx).
 
 ```text
 Browser → admin-ui:3080       loads HTML/JS
-Browser → niyan-api:8100      makes API calls (VITE_API_URL)
+Browser → admin-ui:3080/api   API calls; nginx proxies to niyan-api:8100
 ```
 
-Nginx does **not** proxy `/api`.
+The API base URL is set only by `config.js` (`apiBaseUrl`).
 
 ### `niyan-guardrails`
 
