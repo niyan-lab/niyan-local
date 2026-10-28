@@ -216,6 +216,8 @@ services:
       NIYAN_ADMIN_USERNAME: ${NIYAN_ADMIN_USERNAME:-admin}
       NIYAN_ADMIN_PASSWORD: ${NIYAN_ADMIN_PASSWORD:?run ./install.sh or niyan secrets init}
       NIYAN_CORS_ORIGINS: ${NIYAN_CORS_ORIGINS:-http://localhost:3080,http://127.0.0.1:3080}
+      # Only the admin-ui container (resolved by name) may set X-Forwarded-For.
+      NIYAN_TRUSTED_PROXIES: ${NIYAN_TRUSTED_PROXIES:-admin-ui}
       NIYAN_ALLOW_INSECURE_DEFAULTS: ${NIYAN_ALLOW_INSECURE_DEFAULTS:-0}
       NIYAN_JWT_SECRET: ${NIYAN_JWT_SECRET:?run ./install.sh or niyan secrets init}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}

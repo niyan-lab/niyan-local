@@ -158,3 +158,12 @@ def test_remove_legacy_novus_shell_block(tmp_path):
     assert "novus" not in text
     assert "# before" in text
     assert "# after" in text
+
+
+def test_api_trusts_only_admin_ui_for_xff():
+    root = find_repo_root()
+    for rel in ("deploy/docker-compose.yml", "deploy/docker-compose.release.yml", "bootstrap/stack/docker-compose.yml"):
+        text = (root / rel).read_text()
+        assert "NIYAN_TRUSTED_PROXIES: ${NIYAN_TRUSTED_PROXIES:-admin-ui}" in text, rel
+    nginx = (root / "admin-ui" / "nginx.conf").read_text()
+    assert "X-Forwarded-For $proxy_add_x_forwarded_for" in nginx

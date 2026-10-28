@@ -1,7 +1,10 @@
-# Minimal stack for tests/e2e/login_e2e.sh: admin-ui nginx + niyan-api only.
-# Run under its own compose project with non-default ports; never touches the
-# main niyan stack.
+# Minimal stack for tests/e2e/login_e2e.sh: admin-ui nginx + niyan-api, plus
+# two idle client containers (distinct IPs) to act as different browsers.
+# Own compose project + non-default ports; never touches the main niyan stack.
 name: ${E2E_PROJECT:-niyan-login-e2e}
+x-client: &client
+  build: ../../api
+  entrypoint: ["sleep", "infinity"]
 services:
   niyan-api:
     build: ../../api
@@ -10,6 +13,9 @@ services:
       NIYAN_ADMIN_PASSWORD: ${E2E_ADMIN_PASSWORD:?set by login_e2e.sh}
       NIYAN_JWT_SECRET: ${E2E_JWT_SECRET:?set by login_e2e.sh}
       LITELLM_MASTER_KEY: ${E2E_LITELLM_KEY:?set by login_e2e.sh}
+      NIYAN_TRUSTED_PROXIES: admin-ui # same default as the real compose files
+    ports:
+      - "127.0.0.1:${E2E_API_PORT:-18100}:8100" # like the published :8100
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8100/api/health"]
       interval: 2s
@@ -21,3 +27,5 @@ services:
         condition: service_started
     ports:
       - "127.0.0.1:${E2E_UI_PORT:-13080}:80"
+  client-a: *client
+  client-b: *client

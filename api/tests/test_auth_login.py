@@ -91,3 +91,22 @@ def test_spoofed_xff_does_not_bypass_limit(client):
     for i in range(5):
         login(client, "wrong", headers={"X-Forwarded-For": f"8.8.8.{i}"})
     assert login(client, "wrong", headers={"X-Forwarded-For": "8.8.8.99"}).status_code == 429
+
+
+def test_trusted_proxy_by_hostname(monkeypatch):
+    ll._dns_cache.clear()
+    monkeypatch.setattr(ll.socket, "getaddrinfo", lambda h, *a, **k: [(0, 0, 0, "", ("172.18.0.7", 0))] if h == "admin-ui" else [])
+    assert ll.client_ip("172.18.0.7", "6.6.6.6, 9.9.9.9", trusted="admin-ui") == "9.9.9.9"
+    # Another container / the bridge gateway (host clients on :8100) is not trusted.
+    assert ll.client_ip("172.18.0.1", "9.9.9.9", trusted="admin-ui") == "172.18.0.1"
+    assert ll.client_ip("172.18.0.9", "9.9.9.9", trusted="admin-ui") == "172.18.0.9"
+    ll._dns_cache.clear()
+
+
+def test_unresolvable_hostname_trusts_nothing(monkeypatch):
+    ll._dns_cache.clear()
+    def boom(*a, **k):
+        raise OSError("nxdomain")
+    monkeypatch.setattr(ll.socket, "getaddrinfo", boom)
+    assert ll.client_ip("172.18.0.7", "9.9.9.9", trusted="admin-ui") == "172.18.0.7"
+    ll._dns_cache.clear()

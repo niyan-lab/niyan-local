@@ -9,11 +9,15 @@ WINDOW_SECONDS the next attempt gets 429 with Retry-After until the oldest
 failure leaves the window. A successful login clears the key.
 
 Client IP: request.client.host by default. X-Forwarded-For is honoured only
-when the direct peer is listed in NIYAN_TRUSTED_PROXIES (comma-separated IPs
-or CIDRs, e.g. the admin-ui nginx). Otherwise anyone could spoof the header to
-dodge the limit. Behind nginx without that setting, all browser clients share
-nginx's IP, so the limit is effectively per username — acceptable for a
-single-admin console.
+when the direct peer is listed in NIYAN_TRUSTED_PROXIES: comma-separated IPs,
+CIDRs, or hostnames. A hostname (Compose sets "admin-ui") is resolved to the
+addresses of exactly that container, re-resolved every few seconds so a
+recreated container is picked up. That is narrower than trusting the Docker
+subnet: other containers, and host clients that reach the published :8100 via
+the bridge gateway, are not trusted, so their X-Forwarded-For is ignored. The
+right-most XFF hop (what nginx itself saw, $remote_addr) is used. Unset, all
+clients behind a proxy share the proxy's IP (limit is effectively per
+username).
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from __future__ import annotations
 import ipaddress
 import math
 import os
+import socket
 import threading
 import time
 from collections import deque
@@ -29,6 +34,24 @@ from typing import Callable, Deque, Dict, Optional, Tuple
 MAX_FAILURES = 5
 WINDOW_SECONDS = 60.0
 _MAX_KEYS = 10_000
+
+
+_DNS_TTL = 10.0
+_dns_cache: Dict[str, Tuple[float, list]] = {}
+
+
+def _resolve(host: str) -> list:
+    now = time.monotonic()
+    hit = _dns_cache.get(host)
+    if hit and now - hit[0] < _DNS_TTL:
+        return hit[1]
+    try:
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+        nets = [ipaddress.ip_network(i[4][0]) for i in infos]
+    except (OSError, ValueError):
+        nets = []
+    _dns_cache[host] = (now, nets)
+    return nets
 
 
 def _trusted_networks(raw: Optional[str] = None):
@@ -41,7 +64,7 @@ def _trusted_networks(raw: Optional[str] = None):
         try:
             nets.append(ipaddress.ip_network(part, strict=False))
         except ValueError:
-            continue
+            nets.extend(_resolve(part))  # hostname, e.g. the admin-ui service
     return nets
 
 
