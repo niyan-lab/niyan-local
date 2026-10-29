@@ -70,7 +70,14 @@ fi
 
 FALLBACK_RC=0
 if command -v docker >/dev/null 2>&1 && [[ -f "$ROOT/deploy/docker-compose.yml" ]]; then
-  compose=(docker compose --project-name niyan -f "$ROOT/deploy/docker-compose.yml")
+  # Same order as cli/niyan/project.py: env, .env key, legacy `niyan` for an old .env, default.
+  project="${NIYAN_COMPOSE_PROJECT:-}"
+  if [[ -z "$project" && -f "$ROOT/.env" ]]; then
+    project="$(sed -n 's/^NIYAN_COMPOSE_PROJECT=//p' "$ROOT/.env" | tail -n 1 | tr -d "\"' ")"
+    project="${project:-niyan}"
+  fi
+  project="${project:-niyan}"
+  compose=(docker compose --project-name "$project" -f "$ROOT/deploy/docker-compose.yml")
   if [[ -f "$ROOT/deploy/docker-compose.host-ollama.yml" ]]; then
     compose+=(-f "$ROOT/deploy/docker-compose.host-ollama.yml")
   fi

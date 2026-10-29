@@ -26,7 +26,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from niyan.secrets_policy import INSECURE_VALUES, is_insecure  # noqa: F401  (re-export)
 
-PG_VOLUME = "niyan_niyan_pg"
+PG_VOLUME = "niyan_niyan_pg"  # legacy project `niyan`; see niyan.project.pg_volume
 LEGACY_MARKERS = {
     "LANGFUSE_SALT": "NIYAN_LEGACY_LANGFUSE_SALT",
     "LANGFUSE_ENCRYPTION_KEY": "NIYAN_LEGACY_LANGFUSE_ENCRYPTION_KEY",
@@ -242,12 +242,12 @@ def docker_up() -> bool:
         return False
 
 
-def pg_volume_exists() -> Optional[bool]:
+def pg_volume_exists(volume: str = PG_VOLUME) -> Optional[bool]:
     """True/False, or None when Docker can't be asked (unknown -> caller fails closed)."""
     if not docker_up():
         return None
     try:
-        r = _run(["docker", "volume", "inspect", PG_VOLUME], timeout=20)
+        r = _run(["docker", "volume", "inspect", volume], timeout=20)
     except Exception:
         return None
     return r.returncode == 0
@@ -265,7 +265,9 @@ class PgMigrator:
 
         self.env = placeholder_env(env)
         self.env["NIYAN_ROOT"] = str(repo_root.resolve())
-        self.base = ["docker", "compose", "--project-name", "niyan", "-f", str(repo_root / "deploy" / "docker-compose.yml")]
+        from niyan.project import project_name
+
+        self.base = ["docker", "compose", "--project-name", project_name(repo_root), "-f", str(repo_root / "deploy" / "docker-compose.yml")]
 
     def start(self) -> None:
         r = _run_safe(self.base + ["up", "-d", "--no-deps", "postgres"], cwd=str(self.repo), env=self.env, timeout=300)
@@ -368,7 +370,7 @@ def count_with_retry(mig, db: str, tables: List[str], sleep: Callable[[float], N
 def ensure_secrets(
     repo_root: Path,
     *,
-    volume_probe: Callable[[], Optional[bool]] = pg_volume_exists,
+    volume_probe: Optional[Callable[[], Optional[bool]]] = None,
     migrator_factory: Callable[[Path, Dict[str, str]], "PgMigrator"] = PgMigrator,
 ) -> Dict[str, List[str]]:
     """Fill missing/default secrets.
@@ -376,6 +378,11 @@ def ensure_secrets(
     Returns {'generated', 'kept', 'rotated', 'warnings'}. Raises SecretsInitError
     (writing nothing) when a data-bound secret needs work but Docker is unknown.
     """
+    if volume_probe is None:
+        from niyan.project import pg_volume, project_name
+
+        _vol_name = pg_volume(project_name(repo_root))
+        volume_probe = lambda: pg_volume_exists(_vol_name)  # noqa: E731
     report: Dict[str, List[str]] = {"generated": [], "kept": [], "rotated": [], "warnings": []}
     env_path = repo_root / ".env"
     yaml_path = repo_root / "niyan.yaml"

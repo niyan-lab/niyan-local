@@ -48,7 +48,15 @@ if ((Test-Path $niyan) -and ($env:NIYAN_UNINSTALL_SKIP_CLI -ne "1")) {
 
 $fallbackRc = 0
 if (Get-Command docker -ErrorAction SilentlyContinue) {
-    $composeArgs = @("compose", "--project-name", "niyan", "-f", "$Root\deploy\docker-compose.yml")
+    # Same order as cli/niyan/project.py: env, .env key, legacy `niyan` for an old .env, default.
+    $project = $env:NIYAN_COMPOSE_PROJECT
+    $envFileP = Join-Path $Root ".env"
+    if (-not $project -and (Test-Path $envFileP)) {
+        $m = Select-String -Path $envFileP -Pattern '^NIYAN_COMPOSE_PROJECT=(.+)$' | Select-Object -Last 1
+        if ($m) { $project = $m.Matches[0].Groups[1].Value.Trim().Trim('"', "'") } else { $project = "niyan" }
+    }
+    if (-not $project) { $project = "niyan" }
+    $composeArgs = @("compose", "--project-name", $project, "-f", "$Root\deploy\docker-compose.yml")
     $hostOverlay = Join-Path $Root "deploy\docker-compose.host-ollama.yml"
     if (Test-Path $hostOverlay) { $composeArgs += @("-f", $hostOverlay) }
     $envFile = Join-Path $Root ".env"

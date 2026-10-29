@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from niyan.config import GuardrailsProvider, NiyanConfig, Profile, VectorProvider, uses_host_ollama
 from niyan.doctor import detect_profile
+from niyan.project import project_name
 
 
 def find_repo_root(start: Optional[Path] = None) -> Path:
@@ -74,7 +75,7 @@ def compose_files(repo_root: Path, profile: Profile) -> List[Path]:
 
 
 def compose_cmd(repo_root: Path, profile: Profile, config: NiyanConfig) -> List[str]:
-    cmd = ["docker", "compose", "--project-name", "niyan"]
+    cmd = ["docker", "compose", "--project-name", project_name(repo_root)]
     for f in compose_files(repo_root, profile):
         cmd.extend(["-f", str(f)])
 
@@ -152,7 +153,7 @@ def build_env(repo_root: Path, profile: Profile, config: NiyanConfig) -> dict:
     env.setdefault("BUILDX_NO_DEFAULT_ATTESTATIONS", "1")
     # Docker Desktop on Windows accepts native paths; prefer resolved absolute path.
     env["NIYAN_ROOT"] = str(repo_root.resolve())
-    env["COMPOSE_PROJECT_NAME"] = "niyan"
+    env["COMPOSE_PROJECT_NAME"] = project_name(repo_root)
     env["LITELLM_MASTER_KEY"] = config.proxy.api_keys[0] if config.proxy.api_keys else ""
     env["GUARDRAILS_PROVIDER"] = config.guardrails.provider.value
     env["GUARDRAILS_URL"] = guardrails_url(config)
@@ -294,6 +295,20 @@ def stack_up(repo_root: Path, config: NiyanConfig, *, build: bool = False) -> No
     if build:
         args.insert(2, "--build")
     run_compose(repo_root, config, args)
+
+
+def built_services(config: NiyanConfig) -> List[str]:
+    """Services whose images `niyan up --build` builds for this config."""
+    out = ["gateway", "niyan-api", "loadtest"]
+    if config.guardrails.enabled:
+        out.append(
+            "guardrails"
+            if config.guardrails.provider == GuardrailsProvider.llm_guard
+            else "nemo-guardrails"
+        )
+    if config.admin.enabled:
+        out.append("admin-ui")
+    return out
 
 
 def recreate_litellm(repo_root: Path, config: NiyanConfig) -> None:
