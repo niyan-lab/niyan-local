@@ -92,6 +92,37 @@ def _api(repo: Path, login: bool = False) -> NiyanApiClient:
     return client
 
 
+def _print_target(repo: Path) -> None:
+    from niyan.project import compose_project, repo_root_source
+
+    try:
+        project, psrc = compose_project(repo)
+    except ValueError as exc:
+        project, psrc = "?", str(exc)
+    console.print(f"Repo root: {repo}  (from {repo_root_source(repo)})", markup=False, soft_wrap=True)
+    console.print(f"Compose project: {project}  ({psrc})", markup=False, soft_wrap=True)
+
+
+def _warn_stale_images(repo: Path, cfg) -> None:
+    from niyan.local_compose import built_services
+    from niyan.project import project_name, stale_images
+
+    try:
+        missing, old = stale_images(repo, project_name(repo), built_services(cfg))
+    except Exception:
+        return
+    if missing:
+        console.print(
+            "[yellow]Images not built yet: " + ", ".join(missing)
+            + ". Run `niyan up --build`.[/yellow]"
+        )
+    if old:
+        console.print(
+            "[yellow]Images are older than this checkout's HEAD commit: " + ", ".join(old)
+            + ". After git pull / branch switch run `niyan up --build`.[/yellow]"
+        )
+
+
 def _warn_admin_drift(repo: Path, cfg) -> None:
     from niyan.drift import DRIFT_WARNING, admin_password_drift
 
@@ -222,6 +253,9 @@ def up(
     repo = _repo()
     cfg = _load(repo)
     _warn_admin_drift(repo, cfg)
+    _print_target(repo)
+    if not build:
+        _warn_stale_images(repo, cfg)
     profile = detect_profile(cfg.profile)
     console.print(f"Starting Niyan with profile [cyan]{profile.value}[/cyan] …")
     if build:
@@ -331,8 +365,10 @@ def uninstall(
 def status() -> None:
     """Show service health (API if up, else compose ps)."""
     repo = _repo()
+    _print_target(repo)
     cfg = _load(repo)
     _warn_admin_drift(repo, cfg)
+    _warn_stale_images(repo, cfg)
     client = _api(repo, login=True)
     if client.healthy():
         try:
