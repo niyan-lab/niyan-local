@@ -30,9 +30,9 @@ See the [README](../README.md) for the full install and uninstall steps.
 ### macOS / Linux
 
 ```bash
+git clone https://github.com/niyan-lab/niyan-local.git
 cd niyan-local
-./install.sh
-source ~/.zshrc    # or ~/.bashrc
+./install.sh            # normal user, never sudo
 ```
 
 ### Windows
@@ -62,9 +62,11 @@ Remove the shell hook: `niyan shell init --reverse`.
 
 ```bash
 niyan doctor
-niyan up
-niyan status
+niyan up --build      # first start, and after every git pull / branch switch
+niyan status          # shows the repo root it uses (and why) and the Compose project
 ```
+
+`niyan up` alone reuses existing images (fine for config-only changes). See [README — Updating](../README.md#updating-git-pull-branch-switch-local-code-changes).
 
 Pull chat and embedding models via Niyan (internally Ollama — host on Mac/Windows, Compose on Linux):
 
@@ -182,7 +184,7 @@ curl http://127.0.0.1:4000/v1/chat/completions \
 
 ### Load Testing
 
-Open **Admin → Load Testing** to run Locust against gateway chat/embeddings/domains or a custom URL. Caps: 50 concurrent users, 600s duration, one active run. Download JSON/HTML/CSV reports when finished. Rebuild once so the `loadtest` service is available: `niyan up --build`.
+Open **Admin → Load Testing** to run Locust against gateway chat/embeddings/domains or a custom URL. Caps: 50 concurrent users, 600s duration, one active run. Download JSON/HTML/CSV reports when finished. Needs the `loadtest` image, built by `niyan up --build`.
 
 ### Configuration (`niyan.yaml`)
 
@@ -232,7 +234,6 @@ After hand-editing `niyan.yaml`, run `niyan up`.
 | Model missing from `/v1/models` | Provider disabled, empty key, or model `enabled: false` |
 | Dashboard cost empty / Langfuse unavailable | Set `observability.public_key` / `secret_key`; confirm cost on the Langfuse trace |
 
-Intelligent local↔cloud routing is planned later.
 
 ## OpenAI-compatible call (local)
 
@@ -267,7 +268,8 @@ Then create a collection, upsert, and search via the control plane (admin JWT):
 # login
 TOKEN=$(curl -sf http://127.0.0.1:8100/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"'"$NIYAN_ADMIN_PASSWORD"'"}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+  -d "{\"username\":\"admin\",\"password\":\"$(niyan secrets show --field password)\"}" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 
 curl -sf http://127.0.0.1:8100/api/vector/collections \
   -H "Authorization: Bearer $TOKEN" \
@@ -275,7 +277,28 @@ curl -sf http://127.0.0.1:8100/api/vector/collections \
   -d '{"name":"docs","size":768}'
 ```
 
-Use gateway embeddings to produce vectors, then `POST /api/vector/upsert` and `POST /api/vector/search`.
+Use gateway embeddings to produce vectors, then `POST /api/vector/upsert` and `POST /api/vector/search`. `size` must match the embedding model (`nomic-embed-text` → **768**).
+
+End-to-end (embed → upsert → search), after the login above:
+
+```bash
+VEC=$(curl -sf http://127.0.0.1:4000/v1/embeddings \
+  -H "Authorization: Bearer $NIYAN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"nomic-embed-text","input":"Niyan local RAG"}' \
+  | python3 -c 'import sys,json; print(json.dumps(json.load(sys.stdin)["data"][0]["embedding"]))')
+
+curl -sf http://127.0.0.1:8100/api/vector/upsert \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"collection\":\"docs\",\"points\":[{\"id\":\"doc-1\",\"vector\":$VEC,\"payload\":{\"text\":\"Niyan local RAG\",\"source\":\"readme\"}}]}"
+
+curl -sf http://127.0.0.1:8100/api/vector/search \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"collection\":\"docs\",\"vector\":$VEC,\"limit\":5}"
+# → {"hits":[{"id":"doc-1","score":0.99,"payload":{...}}]}
+```
+
+RAG smoke test: `./scripts/rag_smoke_test.sh`.
 
 ## URLs
 

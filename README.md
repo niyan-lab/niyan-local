@@ -30,7 +30,10 @@ cd niyan-local
 chmod +x install.sh uninstall.sh
 ./install.sh
 source ~/.zshrc    # or: source ~/.bashrc
+niyan doctor && niyan up --build
 ```
+
+Already have niyan-complete installed? See [Two checkouts on one machine](#two-checkouts-on-one-machine): the last `./install.sh` decides which repo `niyan` controls.
 
 ### Windows (PowerShell)
 
@@ -47,42 +50,20 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 ## Secrets
 
-There are no shared default credentials. On first run `install.sh` / `install.ps1` (via `niyan secrets init`) generate:
+There are no shared default credentials. `./install.sh` (via `niyan secrets init`) generates per-install secrets in `niyan.yaml` (admin password, JWT secret, gateway key) and `.env` (Postgres, Langfuse); both are chmod 600 and never stored in Postgres/Redis.
 
-- `niyan.yaml`: `admin_auth.password`, `admin_auth.jwt_secret`, `proxy.api_keys` (gateway / LiteLLM master key). This is the single source for these three, for both the from-source and the pull-only installer (which mirrors them into `~/.niyan/stack/.env` for Compose).
-- `.env`: `POSTGRES_PASSWORD`, `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY`.
+- **Show:** `niyan secrets show` (`--all` adds the API key and JWT secret, `--field password` prints one raw value for scripts).
+- **Refuses defaults:** `niyan up`, the gateway and the control API refuse to start with empty or old default secrets.
+- **Dev-only bypass:** `NIYAN_ALLOW_INSECURE_DEFAULTS=1` (exactly `1`, loud warning; not in the release Compose files).
 
-Re-running the installer keeps existing strong values. The admin password is printed at the end of an install that generated it (it then sits in your terminal scrollback — clear it on shared screens); later use `niyan secrets show` (`--all` adds the API key and JWT secret, `--field password` prints one raw value for scripts). `niyan up`, the gateway and the control API refuse to start with empty or old default secrets. For throwaway dev/tests only, `NIYAN_ALLOW_INSECURE_DEFAULTS=1` (exactly `1`) bypasses that check with a loud warning; it is not wired into the release/pull-only Compose files. LiteLLM and Langfuse do not check their own secrets — the `niyan up` pre-check (and `~/.niyan/bin/niyan up` for pull-only installs) is what guards them. Secrets are never stored in Postgres/Redis; `/api/config` returns them masked.
-
-**Gateway keys are read-only in the Admin UI** (the save endpoints return 409 for a changed key), so the Gateway page always shows the key the gateway enforces. To rotate: `niyan secrets rotate gateway-key` (pull-only: `~/.niyan/bin/niyan secrets rotate gateway-key`), then `niyan up`. Read the new key with `niyan gateway keys --plain`.
-
-### Upgrading from an older install (shared default secrets)
-
-Builds before per-install secrets shipped `niyan` / `sk-niyan-local` / `change-me…` defaults. Just pull and re-run the installer — **with Docker running**:
-
-```bash
-git pull && ./install.sh        # pull-only: re-run the bootstrap installer
-niyan up
-niyan secrets show              # new admin password
-```
-
-What happens, without wiping data:
-
-- **Postgres** (`niyan_niyan_pg` volume exists): a new password is applied in place with `ALTER USER` (over the container's local socket), verified over TCP, then written to `.env`. `niyan up` recreates containers with it.
-- **Langfuse** `LANGFUSE_NEXTAUTH_SECRET` is rotated (only logs users out). `LANGFUSE_SALT` / `LANGFUSE_ENCRYPTION_KEY` are rotated only if no Langfuse rows depend on them (API keys / stored LLM keys). Otherwise (a **confirmed** non-zero count) the old public value is **kept**, marked `NIYAN_LEGACY_LANGFUSE_SALT=1` / `NIYAN_LEGACY_LANGFUSE_ENCRYPTION_KEY=1` in `.env`, and the installer warns: anyone with repo access knows that key. Marked keys are re-counted on every install and rotated as soon as nothing depends on them. If the count itself fails (Postgres restarting, exec error/timeout) it is retried 3× with backoff; if it still fails the installer stops **before changing anything** (no marker, no rotation) and `niyan up` keeps refusing until you re-run the installer. A missing `langfuse` database counts as 0 rows. The Langfuse counts run before the Postgres password is rotated.
-- **Admin password, JWT secret, gateway key** in `niyan.yaml` are regenerated. Old secrets stored in the Postgres config table are scrubbed on API start and an admin-UI save cannot write a default back. Update clients that used `sk-niyan-local` to `niyan gateway keys --plain`.
-- **Docker not running**: the installer refuses (exit 2) and changes nothing, because it cannot tell whether data exists.
-
-```bash
-export NIYAN_API_KEY="$(niyan gateway keys --plain | head -1)"
-```
+Gateway keys are read-only in the Admin UI. Rotate with `niyan secrets rotate gateway-key`, then `niyan up`; read it with `niyan gateway keys --plain`. Upgrading from an install with shared defaults, Langfuse key handling and the Compose project name: [docs/secrets.md](docs/secrets.md).
 
 ## Start
 
 ```bash
 niyan doctor
-niyan up
-niyan status
+niyan up --build      # first start; plain `niyan up` afterwards for config-only changes
+niyan status          # also prints the repo root it uses (and why) and the Compose project
 ```
 
 Repo-local fallback (no shell init): `./niyan.sh …` or `.\niyan.cmd …`
@@ -94,6 +75,10 @@ Repo-local fallback (no shell init): `./niyan.sh …` or `.\niyan.cmd …`
 | Control API | http://127.0.0.1:8100 |
 | Gateway API key | generated per install — `niyan gateway keys --plain` (export as `NIYAN_API_KEY`) |
 
+```bash
+export NIYAN_API_KEY="$(niyan gateway keys --plain | head -1)"
+```
+
 Pull local models (Mac/Windows: host Ollama; Linux: Compose):
 
 ```bash
@@ -102,6 +87,70 @@ niyan embeddings pull
 ```
 
 Optional cloud models: Admin → **Providers** (paste key) → **Models → Proprietary** (enable). Same gateway. Details: [docs/quickstart.md](docs/quickstart.md).
+
+## Updating (git pull, branch switch, local code changes)
+
+`niyan up` reuses already-built images; it does **not** rebuild. After any of
+these, rebuild:
+
+- `git pull` / `git checkout <branch>` / editing `services/`, `api/`, `admin-ui/`
+- re-running `./install.sh` (it never builds or starts containers)
+
+```bash
+git pull                       # or: git checkout <branch>
+./install.sh                   # only if install.sh / cli/ / secrets changed; safe to re-run
+niyan up --build               # rebuild gateway, niyan-api, admin-ui, guardrails, loadtest
+niyan status
+```
+
+Config-only changes (Admin UI saves, `niyan model enable`, provider keys) need
+plain `niyan up` (no rebuild). `niyan up` warns when an image is missing or
+older than this checkout's HEAD commit.
+
+Old builds shipped shared default secrets. With Docker running,
+`git pull && ./install.sh && niyan up --build` rotates them in place and keeps
+your data. Details: [docs/secrets.md](docs/secrets.md).
+
+### Check that the running stack matches this checkout
+
+```bash
+niyan status                                     # prints repo root (and why) + Compose project
+docker images --format '{{.Repository}} {{.CreatedAt}}' | grep '^niyan-'
+git log -1 --format='%h %cd'                     # images must be newer than this commit
+```
+
+If the repo root is not this checkout, or the images are older than the commit,
+run `niyan up --build` from this checkout (see "Two checkouts on one machine").
+
+## Two checkouts on one machine
+
+`niyan-local` and `niyan-complete` use **different Compose projects** (`niyan`
+and `niyan-complete`), so their containers, images and volumes are separate.
+They still publish the **same ports** (3080, 4000, 8100, …): run only one at a
+time. The pull-only `~/.niyan` install also uses project `niyan`.
+
+Installs made before `NIYAN_COMPOSE_PROJECT` existed keep running as `niyan`
+(an existing `.env` without the key means `niyan`), so nothing is orphaned. Set
+`NIYAN_COMPOSE_PROJECT=<name>` in `.env` to choose explicitly; see
+[docs/secrets.md](docs/secrets.md#compose-project-name) before changing it on a
+stack that already has data.
+
+The `niyan` command targets the repo in `NIYAN_ROOT` (then `NIYAN_HOME`, then the
+current directory). `./install.sh` rewrites the single `# >>> niyan initialize >>>`
+block in your shell profile, so new shells follow the **last repo you installed**.
+Shells that were already open keep the old value. `niyan status` shows which
+root it picked and why.
+
+Switch repos explicitly:
+
+```bash
+niyan down                                 # stop the other checkout's stack
+cd ~/path/to/niyan-complete
+./niyan.sh up --build                      # ./niyan.sh always targets its own checkout
+# or, for this shell only:
+export NIYAN_ROOT="$PWD" NIYAN_HOME="$PWD"; niyan up --build
+# or permanently: ./install.sh (or niyan shell init) from this checkout, then open a new shell
+```
 
 ## Uninstall
 
@@ -131,8 +180,11 @@ Pre-built GHCR images + thin CLI under `~/.niyan`. See [docs/remote-install.md](
 
 ```bash
 ./bootstrap/install.sh     # from this checkout, for operator smoke
+niyan up --pull            # pull-only installs pull images instead of building
 niyan uninstall            # removes ~/.niyan (remote CLI)
 ```
+
+The pull-only installer replaces this checkout's shell block and uses Compose project `niyan` and the same ports; run `./install.sh` again here to switch back.
 
 ## Layout
 
@@ -155,6 +207,7 @@ bootstrap/                   pull-only bundle (GHCR)
 | [docs/quickstart.md](docs/quickstart.md) | Chat, embeddings, vectors, proprietary models |
 | [docs/testing.md](docs/testing.md) | Gateway Swagger |
 | [docs/Arch.md](docs/Arch.md) | Routing and runtime config |
+| [docs/secrets.md](docs/secrets.md) | Secrets, upgrades from shared defaults, Compose project name |
 | [docs/remote-install.md](docs/remote-install.md) | GHCR / beta pull-only path |
 | [docs/CHARTER.md](docs/CHARTER.md) | Local-only scope |
 
