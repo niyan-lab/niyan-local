@@ -88,7 +88,7 @@ echo "  Like conda: open a new terminal (or: source your ~/.zshrc / ~/.bashrc),"
 echo "  then use niyan from anywhere:"
 echo
 echo "    niyan doctor"
-echo "    niyan up"
+echo "    niyan up --build    # first start, and after every git pull / branch switch"
 echo "    niyan status"
 echo
 if [ "$NEW_ADMIN_PW" = "1" ]; then
@@ -106,5 +106,5 @@ echo "Next steps:"
 echo "  1) Mac/Windows: install & start Ollama (https://ollama.com)"
 echo "  2) source ~/.zshrc   # or ~/.bashrc, then:"
 echo "  3) niyan doctor"
-echo "  4) niyan up"
+echo "  4) niyan up --build   # first start, and after every git pull / branch switch"
 echo "  5) see README.md"
