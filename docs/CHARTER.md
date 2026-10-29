@@ -14,8 +14,6 @@
 - **Kubernetes** — Helm, Terraform, cluster lifecycle CI, Ingress recipes
 - Those live in [`niyan-complete`](https://github.com/niyan-lab/niyan-complete)
 
-## Lineage
+## Maintainers
 
-Seeded from orphan import `c5906a9` (*Initial import of niyan local stack*, 2026-09-14), curated from the `cursor/novus-slm-stack` Compose line. Later K8s work on complete must **not** be copied here.
-
-Product improvements that apply to Compose (runtime config, install polish, UI) are backported from complete — see `docs/SYNC.md`.
+K8s work on niyan-complete must **not** be copied here. Product improvements that apply to Compose (runtime config, install polish, UI) are backported from complete — see `docs/SYNC.md`.

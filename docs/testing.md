@@ -113,7 +113,4 @@ Requires vector store enabled (`niyan vector provider qdrant`) and `nomic-embed-
 1. Keys in `niyan.yaml` must be applied with a stack recreate: `niyan up`
 2. Check gateway wiring: `curl -s http://127.0.0.1:4000/health` → `langfuse.enabled` should be `true`
 3. Chat responses include `niyan.langfuse` — look for `"ok": true`
-4. Open the **same** Langfuse UI that owns those keys:
-   - Bundled Niyan Langfuse → http://127.0.0.1:3100
-   - Older host Langfuse → http://127.0.0.1:3000 (set host to `http://127.0.0.1:3000` in yaml)
-5. Correct bundled host in yaml: `http://langfuse-web:3000` (not `:3100`)
+4. Bundled Langfuse: UI `http://127.0.0.1:3100`, in-container host `http://langfuse-web:3000` (set that in `niyan.yaml`, not `:3100`)
